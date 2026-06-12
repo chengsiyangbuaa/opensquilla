@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -148,17 +149,20 @@ class OpenSquillaAdapter:
         # of the venv's recorded Python path.
         py_code = f"import sys\nsys.argv = {argv!r}\nfrom opensquilla.cli.main import app\napp()\n"
 
+        # Secrets travel via a 0600 env-file: `docker exec -e KEY=value`
+        # would expose the key in the host's process list.
+        secret_env_path = _write_secret_env_file()
         cmd = [
             "docker",
             "exec",
+            "--env-file",
+            secret_env_path,
             "-e",
             f"PYTHONPATH={container_pythonpath()}",
             "-e",
             f"OPENSQUILLA_GATEWAY_CONFIG_PATH={CONTAINER_OPENSQUILLA_CONFIG}",
             "-e",
             f"OPENSQUILLA_STATE_DIR={CONTAINER_OPENSQUILLA_STATE}",
-            "-e",
-            f"OPENROUTER_API_KEY={os.environ.get('OPENROUTER_API_KEY', '')}",
             container_name,
             python_bin(),
             "-c",
@@ -187,6 +191,11 @@ class OpenSquillaAdapter:
                 "OpenSquilla subprocess timed out after %ds",
                 self.timeout + SUBPROCESS_TIMEOUT_BUFFER,
             )
+        finally:
+            try:
+                os.unlink(secret_env_path)
+            except OSError:
+                pass
 
         duration = time.time() - start_time
 
@@ -242,6 +251,18 @@ class OpenSquillaAdapter:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _write_secret_env_file() -> str:
+    """Write provider secrets to a private (0600) temp env-file.
+
+    Returned path is passed to ``docker exec --env-file`` and removed by
+    the caller right after the agent subprocess finishes.
+    """
+    fd, path = tempfile.mkstemp(prefix="opensquilla-swebench-", suffix=".env")
+    with os.fdopen(fd, "w") as fh:
+        fh.write(f"OPENROUTER_API_KEY={os.environ.get('OPENROUTER_API_KEY', '')}\n")
+    return path
 
 
 def _save_container_file(container_name: str, src_in_container: str, dest: Path) -> None:
