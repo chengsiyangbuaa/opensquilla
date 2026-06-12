@@ -32,10 +32,17 @@ class ImageNotFoundError(RuntimeError):
 
 
 def image_exists_locally(image_name: str) -> bool:
-    result = subprocess.run(
-        ["docker", "image", "inspect", image_name],
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", image_name],
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # Docker missing or unresponsive: report "not available" so the
+        # caller reaches its ImageNotFoundError guidance instead of crashing.
+        logger.warning("docker image inspect failed for %s: %s", image_name, exc)
+        return False
     return result.returncode == 0
 
 
@@ -65,6 +72,9 @@ def pull_image(instance_id: str) -> str | None:
         )
     except subprocess.TimeoutExpired:
         logger.warning("docker pull timed out after %ds for %s", PULL_TIMEOUT, image)
+        return None
+    except OSError as exc:
+        logger.warning("docker pull failed for %s: %s", image, exc)
         return None
     if result.returncode == 0:
         logger.info("Pulled %s", image)
@@ -103,6 +113,9 @@ def build_image(instance_id: str, dataset_name: str) -> str | None:
         )
     except subprocess.TimeoutExpired:
         logger.warning("Image build timed out after %ds for %s", BUILD_TIMEOUT, instance_id)
+        return None
+    except OSError as exc:
+        logger.warning("Image build failed for %s: %s", instance_id, exc)
         return None
     if result.returncode != 0:
         logger.warning(

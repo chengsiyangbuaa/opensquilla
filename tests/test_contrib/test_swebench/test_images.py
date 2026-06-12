@@ -103,3 +103,39 @@ def test_build_invokes_harness_and_rechecks_local(monkeypatch):
         build=True,
     )
     assert name.startswith("sweb.eval.x86_64.")
+
+
+def test_image_exists_locally_survives_missing_docker(monkeypatch):
+    def no_docker(cmd, **kwargs):
+        raise FileNotFoundError("docker not installed")
+
+    monkeypatch.setattr(images.subprocess, "run", no_docker)
+    assert images.image_exists_locally("sweb.eval.x86_64.x:latest") is False
+
+
+def test_ensure_image_missing_docker_raises_image_not_found(monkeypatch):
+    def no_docker(cmd, **kwargs):
+        raise FileNotFoundError("docker not installed")
+
+    monkeypatch.setattr(images.subprocess, "run", no_docker)
+    with pytest.raises(images.ImageNotFoundError):
+        images.ensure_image(
+            "django__django-16429",
+            "princeton-nlp/SWE-bench_Verified",
+        )
+
+
+def test_pull_image_survives_missing_docker(monkeypatch):
+    def no_docker(cmd, **kwargs):
+        raise FileNotFoundError("docker not installed")
+
+    monkeypatch.setattr(images.subprocess, "run", no_docker)
+    assert images.pull_image("django__django-16429") is None
+
+
+def test_build_image_survives_missing_docker(monkeypatch):
+    def no_docker(cmd, **kwargs):
+        raise FileNotFoundError("no interpreter")
+
+    monkeypatch.setattr(images.subprocess, "run", no_docker)
+    assert images.build_image("django__django-16429", "princeton-nlp/SWE-bench_Verified") is None
