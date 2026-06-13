@@ -47,12 +47,19 @@ def test_build_artifacts_excluded_from_change(monkeypatch, tmp_path, source_repo
     egg.mkdir()
     (egg / "PKG-INFO").write_text("Metadata-Version: 2.1")
 
+    # A legitimate new source file under a nested "build" dir must NOT be
+    # excluded — only the repo-root build output is (anchored patterns).
+    nested = repo / "src" / "build"
+    nested.mkdir(parents=True)
+    (nested / "real_source.py").write_text("VALUE = 1\n")
+
     files_changed, diffstat, patch = workspace.collect_change(repo, prepared.base_commit)
-    # Only the real source edit is captured; junk is excluded.
+    # Real source edits captured; build/cache junk excluded.
     assert "mod.py" in patch
+    assert "src/build/real_source.py" in patch
     assert "pyc" not in patch
     assert "egg-info" not in patch
-    assert files_changed == 1
+    assert files_changed == 2  # mod.py + src/build/real_source.py
 
 
 def test_exclude_file_written(monkeypatch, tmp_path, source_repo):

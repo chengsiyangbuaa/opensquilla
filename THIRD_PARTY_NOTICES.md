@@ -20,7 +20,6 @@ It covers:
 
 - Component: SKILL.md frontmatter and instruction text for these bundled skills:
   - `sub-agent`
-  - `code-task`
 - `cron`
   - `github`
   - `nano-pdf`
@@ -71,6 +70,7 @@ These bundled skill descriptors are authored and maintained by OpenSquilla and
 are released under OpenSquilla's repository license (Apache-2.0; see `LICENSE`):
 
 - `cron`
+- `code-task`
 - `AwesomeWebpageMetaSkill`
 - `awesome-webpage-image-download`
 - `awesome-webpage-research`

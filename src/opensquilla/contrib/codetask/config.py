@@ -45,6 +45,7 @@ TASK_BRANCH_PREFIX = "task/"
 # Only never-legitimate junk — real source edits (incl. pyproject.toml) are
 # untouched.
 BUILD_ARTIFACT_EXCLUDES = [
+    # Unambiguous junk anywhere in the tree (safe to leave unanchored).
     "__pycache__/",
     "*.pyc",
     "*.pyo",
@@ -57,11 +58,15 @@ BUILD_ARTIFACT_EXCLUDES = [
     "*.o",
     "*.class",
     "node_modules/",
-    "target/",
     ".coverage",
-    "htmlcov/",
-    "dist/",
-    "build/",
+    # Common build-output dir names that a project might legitimately use as
+    # a source path at depth (e.g. src/build/). Anchor to the repo root so we
+    # only ignore the top-level build outputs, never new source files
+    # (codex review: unanchored patterns dropped legitimate src/build files).
+    "/target/",
+    "/dist/",
+    "/build/",
+    "/htmlcov/",
 ]
 
 # Package data shipped with the wheel (prompt template).
