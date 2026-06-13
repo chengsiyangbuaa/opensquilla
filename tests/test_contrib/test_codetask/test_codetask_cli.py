@@ -38,6 +38,14 @@ def test_solve_rejects_two_task_inputs():
     assert result.exit_code == 2
 
 
+def test_json_without_yes_is_refused():
+    # --json is non-interactive; the trusted-host gate must not be skipped
+    # silently (codex review #5). It must require an explicit --yes.
+    result = runner.invoke(codetask_app, ["solve", "--repo", "/tmp/x", "--task", "do it", "--json"])
+    assert result.exit_code == 2
+    assert "--yes" in result.output
+
+
 def test_cli_main_does_not_import_codetask():
     result = subprocess.run(
         [

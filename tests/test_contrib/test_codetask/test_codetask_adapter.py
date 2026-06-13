@@ -1,32 +1,55 @@
 """Unit tests for opensquilla.contrib.codetask.adapter (subprocess mocked)."""
 
+import subprocess as sp
+
 from opensquilla.contrib.codetask import adapter
 from opensquilla.contrib.codetask.adapter import LocalAdapter
 
 
-class FakeResult:
-    def __init__(self, stdout="", returncode=0, stderr=""):
-        self.stdout = stdout
+class FakePopen:
+    """Minimal Popen stand-in for the adapter's communicate()-based flow."""
+
+    def __init__(self, cmd, stdout="", returncode=0, stderr="", timeout=False, **kwargs):
+        self.args = cmd
+        self.pid = 4242
+        self._stdout = stdout
+        self._stderr = stderr
         self.returncode = returncode
-        self.stderr = stderr
+        self._timeout = timeout
+        self._calls = 0
+        self.killed = False
+
+    def communicate(self, timeout=None):
+        self._calls += 1
+        # Time out only on the first call (the bounded wait); the post-kill
+        # drain call returns normally.
+        if self._timeout and self._calls == 1:
+            raise sp.TimeoutExpired(self.args, timeout or 1)
+        return self._stdout, self._stderr
+
+    def kill(self):
+        self.killed = True
+
+
+def _install_popen(monkeypatch, captured, **popen_kw):
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["cwd"] = kwargs.get("cwd")
+        captured["new_session"] = kwargs.get("start_new_session")
+        captured["code"] = cmd[2]
+        return FakePopen(cmd, **popen_kw)
+
+    monkeypatch.setattr(adapter.subprocess, "Popen", fake_popen)
 
 
 def test_argv_has_host_containment_flags(monkeypatch, tmp_path):
     captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        captured["cwd"] = kwargs.get("cwd")
-        # The agent CLI argv is embedded in the -c python code.
-        captured["code"] = cmd[2]
-        return FakeResult(stdout='{"status": "ok", "text": "done", "usage": {}}')
-
-    monkeypatch.setattr(adapter.subprocess, "run", fake_run)
+    _install_popen(monkeypatch, captured, stdout='{"status": "ok", "text": "done", "usage": {}}')
     repo = tmp_path / "repo"
     repo.mkdir()
-    a = LocalAdapter(model="m", timeout=10)
-    out = a.run("fix it", repo=repo, scratch_dir=tmp_path / "s", artifact_dir=tmp_path / "art")
-
+    out = LocalAdapter(model="m", timeout=10).run(
+        "fix it", repo=repo, scratch_dir=tmp_path / "s", artifact_dir=tmp_path / "art"
+    )
     assert out.success is True
     code = captured["code"]
     for flag in (
@@ -39,31 +62,27 @@ def test_argv_has_host_containment_flags(monkeypatch, tmp_path):
     ):
         assert flag in code
     assert captured["cwd"] == str(repo)
+    # Descendant-killable process group (codex review #6).
+    assert captured["new_session"] is True
 
 
 def test_api_key_never_in_argv(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-secret-xyz")
     captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        return FakeResult(stdout='{"status": "ok", "text": "done"}')
-
-    monkeypatch.setattr(adapter.subprocess, "run", fake_run)
+    _install_popen(monkeypatch, captured, stdout='{"status": "ok", "text": "done"}')
     repo = tmp_path / "repo"
     repo.mkdir()
     LocalAdapter().run("x", repo=repo, scratch_dir=tmp_path / "s", artifact_dir=tmp_path / "a")
-    # Host mode inherits env; the key must not be embedded in the command.
     assert all("sk-or-secret-xyz" not in part for part in captured["cmd"])
 
 
-def test_timeout_maps_to_environment_blocked_finish(monkeypatch, tmp_path):
-    import subprocess as sp
-
-    def fake_run(cmd, **kwargs):
-        raise sp.TimeoutExpired(cmd, 1)
-
-    monkeypatch.setattr(adapter.subprocess, "run", fake_run)
+def test_timeout_kills_group_and_reports_timeout(monkeypatch, tmp_path):
+    captured = {}
+    _install_popen(monkeypatch, captured, timeout=True)
+    killed = {"group": False}
+    monkeypatch.setattr(
+        adapter, "_kill_process_group", lambda proc: killed.__setitem__("group", True)
+    )
     repo = tmp_path / "repo"
     repo.mkdir()
     out = LocalAdapter(timeout=1).run(
@@ -71,3 +90,4 @@ def test_timeout_maps_to_environment_blocked_finish(monkeypatch, tmp_path):
     )
     assert out.timeout is True
     assert out.finish_reason == "timeout"
+    assert killed["group"] is True

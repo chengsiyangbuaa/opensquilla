@@ -29,7 +29,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from opensquilla.contrib.codetask.config import (
     DEFAULT_ACCEPTANCE_TIMEOUT,
@@ -44,6 +44,8 @@ from opensquilla.contrib.codetask.types import (
 logger = logging.getLogger(__name__)
 
 _PYTEST_SUMMARY = re.compile(r"(\d+) (passed|failed|error|errors)")
+# Failing node ids, e.g. "FAILED tests/test_x.py::test_y - AssertionError".
+_PYTEST_FAILED_LINE = re.compile(r"^FAILED\s+(\S+)", re.MULTILINE)
 
 
 @dataclass
@@ -135,24 +137,27 @@ def verify(
         check.after = "pass" if rc == 0 else "fail"
 
     # RED: re-run each acceptance command at base, with the agent's test files
-    # overlaid, in a throwaway worktree.
-    red_known = True
+    # overlaid, in a throwaway worktree. ``before`` is left None whenever we
+    # could not establish the red state, and the reason is recorded so the
+    # state machine can fail CLOSED rather than claim an unprovable VERIFIED.
+    red_unprovable: str | None = None
     try:
         with _BaseWorktree(repo, base_commit) as wt:
             for check, paths in zip(checks, test_paths_by_index, strict=False):
-                if not paths:
-                    check.before = None  # cannot establish red without test paths
-                    red_known = False
+                safe = _safe_rel_paths(paths)
+                if not safe:
+                    check.before = None  # no usable test paths -> cannot prove red
+                    red_unprovable = red_unprovable or "missing_test_paths"
                     continue
-                if not _overlay_paths(repo, wt, paths):
+                if not _overlay_paths(repo, wt, safe):
                     check.before = None
-                    red_known = False
+                    red_unprovable = red_unprovable or "missing_test_paths"
                     continue
                 rc, _ = _run_shell(check.command, cwd=wt, timeout=acceptance_timeout)
                 check.before = "fail" if rc != 0 else "pass"
     except _WorktreeError as exc:
         logger.warning("base worktree unavailable, red phase skipped: %s", exc)
-        red_known = False
+        red_unprovable = "worktree_failed"
 
     regression = _run_regression(
         manifest.get("regression_command"),
@@ -161,40 +166,49 @@ def verify(
         timeout=regression_timeout,
     )
 
-    state = _decide_state(checks, regression, red_known)
+    state, detail = _decide_state(checks, regression, red_unprovable)
     return VerificationOutcome(
         state=state,
         acceptance=checks,
         regression=regression,
         assumptions=assumptions,
+        detail=detail,
     )
 
 
 def _decide_state(
     checks: list[AcceptanceCheck],
     regression: RegressionResult | None,
-    red_known: bool,
-) -> TaskState:
+    red_unprovable: str | None,
+) -> tuple[TaskState, str]:
+    """Decide the task state, failing CLOSED when proof is incomplete."""
     all_green = all(c.after == "pass" for c in checks)
     if not all_green:
-        return TaskState.FAILED
+        return TaskState.FAILED, "an acceptance test did not pass after the change"
 
     regressed = bool(regression and regression.ran and (regression.new_failures or 0) > 0)
     if regressed:
-        return TaskState.FAILED
+        return TaskState.FAILED, "the change introduced new regression failures"
 
-    # All acceptance green. Distinguish a real fix from a no-op.
-    if red_known and all(c.before == "fail" for c in checks):
-        return TaskState.VERIFIED
-    if red_known and all(c.before == "pass" for c in checks):
-        return TaskState.ALREADY_SATISFIED
-    # Red state unknown (no test paths / worktree failure): green is real but
-    # we cannot prove the change caused it. Report as verified-weak via
-    # VERIFIED only when at least confirmed green; conservative: VERIFIED if
-    # any before==fail, else NOT_TESTABLE-ish -> keep as VERIFIED with caveat.
-    if any(c.before == "fail" for c in checks):
-        return TaskState.VERIFIED
-    return TaskState.VERIFIED
+    # All acceptance green. We may only claim VERIFIED if every check was
+    # independently proven red on the base commit.
+    befores = [c.before for c in checks]
+    if all(b == "fail" for b in befores):
+        return TaskState.VERIFIED, ""
+    if all(b == "pass" for b in befores):
+        return TaskState.ALREADY_SATISFIED, "expected behavior already held on the base commit"
+
+    # Green but red not (fully) established -> cannot prove the change matters.
+    if red_unprovable == "worktree_failed":
+        return (
+            TaskState.ENVIRONMENT_BLOCKED,
+            "acceptance passed but the base worktree could not be built to prove the red state",
+        )
+    return (
+        TaskState.INVALID_ACCEPTANCE_TEST,
+        "acceptance passed but its red state could not be proven (declare test_paths so the "
+        "runner can re-create the failing state on the original code)",
+    )
 
 
 def _run_regression(
@@ -211,24 +225,39 @@ def _run_regression(
 
     head_rc, head_out = _run_shell(cmd, cwd=repo, timeout=timeout)
     head_fail = _parse_failures(head_out, head_rc)
+    head_names = _failing_names(head_out)
     result.passed = _parse_passes(head_out)
     result.failed = head_fail
     result.raw_tail = "\n".join(head_out.splitlines()[-15:])
 
     # Differential: run the same command at base to avoid penalizing
     # pre-existing failures.
+    base_rc: int | None = None
+    base_fail: int | None = None
+    base_names: set[str] | None = None
     try:
         with _BaseWorktree(repo, base_commit) as wt:
             base_rc, base_out = _run_shell(cmd, cwd=wt, timeout=timeout)
             base_fail = _parse_failures(base_out, base_rc)
+            base_names = _failing_names(base_out)
     except _WorktreeError:
-        base_fail = None
+        pass
 
-    if base_fail is not None and head_fail is not None:
+    # Prefer a set difference of named failures (a new failure cannot be
+    # masked by a fixed pre-existing one — codex review #4).
+    if head_names is not None and base_names is not None:
+        result.new_failures = len(head_names - base_names)
+    elif base_fail is not None and head_fail is not None:
         result.new_failures = max(0, head_fail - base_fail)
     elif head_fail is not None:
-        # No base baseline: treat any head failure as new (conservative).
+        # No usable baseline: any head failure counts as new (conservative).
         result.new_failures = head_fail
+    elif head_rc != 0:
+        # Nonzero exit we could not parse: fail CLOSED, treat as regressed
+        # (codex review #3 — do NOT silently report clean).
+        result.new_failures = 1
+    else:
+        result.new_failures = 0
     return result
 
 
@@ -264,15 +293,24 @@ class _BaseWorktree:
         self._dir: Path | None = None
 
     def __enter__(self) -> Path:
+        import shutil
+
         tmp = Path(tempfile.mkdtemp(prefix="codetask-base-"))
-        r = subprocess.run(
-            ["git", "worktree", "add", "--detach", str(tmp), self.base_commit],
-            cwd=str(self.repo),
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        try:
+            r = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(tmp), self.base_commit],
+                cwd=str(self.repo),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise _WorktreeError(str(exc)) from exc
         if r.returncode != 0:
+            # Do not leak the mkdtemp dir when the worktree was never added
+            # (codex review #9).
+            shutil.rmtree(tmp, ignore_errors=True)
             raise _WorktreeError((r.stderr or "").strip()[-200:])
         self._dir = tmp
         return tmp
@@ -287,22 +325,61 @@ class _BaseWorktree:
             )
 
 
+def _safe_rel_paths(paths: list[str]) -> list[str]:
+    """Keep only repo-relative paths (reject absolute and parent-escaping).
+
+    Agent-declared test_paths are untrusted input; an absolute path or one
+    containing ``..`` could read/overlay files outside the repo (codex
+    review #7).
+    """
+    safe: list[str] = []
+    for rel in paths:
+        p = str(rel).strip()
+        if not p:
+            continue
+        if PurePosixPath(p).is_absolute() or p.startswith("/") or "\\" in p:
+            continue
+        if any(part == ".." for part in PurePosixPath(p).parts):
+            continue
+        safe.append(p)
+    return safe
+
+
 def _overlay_paths(repo: Path, worktree: Path, paths: list[str]) -> bool:
     """Copy the given files from the task tree into the base worktree.
 
     Used so a NEW acceptance test (which does not exist at base) can be run
-    against base source. Returns False if any path is missing in the task tree.
+    against base source. Paths are assumed pre-validated by
+    :func:`_safe_rel_paths`. Returns False if any path is missing or a copy
+    fails (so the caller leaves ``before`` unproven rather than crashing).
     """
     import shutil
 
     for rel in paths:
-        src = repo / rel
+        src = (repo / rel).resolve()
+        try:
+            src.relative_to(repo.resolve())
+        except ValueError:
+            return False  # symlink/escape outside the repo
         if not src.is_file():
             return False
         dest = worktree / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+        except OSError:
+            return False
     return True
+
+
+def _failing_names(output: str) -> set[str] | None:
+    """Extract failing test node ids from pytest-style output.
+
+    Returns None when no ``FAILED <nodeid>`` lines are present (so the caller
+    falls back to counts). Enables a set difference that a count cannot do.
+    """
+    names = set(_PYTEST_FAILED_LINE.findall(output))
+    return names or None
 
 
 def _parse_failures(output: str, returncode: int) -> int | None:

@@ -63,8 +63,18 @@ def solve(
         )
         raise typer.Exit(2)
 
-    # Trusted-host gate (skippable for automation).
-    if not yes and not json_output:
+    # Trusted-host gate. --json is non-interactive, so it must carry an
+    # explicit --yes rather than silently skipping the gate (codex review #5).
+    if not yes:
+        if json_output:
+            typer.secho(
+                "Refusing to run non-interactively without --yes. code-task runs an "
+                "agent on the host (not a sandbox); pass --yes to confirm the repo is "
+                "trusted.",
+                err=True,
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(2)
         typer.secho(TRUSTED_HOST_WARNING, fg=typer.colors.YELLOW)
         if not typer.confirm(f"Run code-task against {repo}?", default=False):
             raise typer.Exit(1)

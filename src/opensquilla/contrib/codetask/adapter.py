@@ -110,26 +110,32 @@ class LocalAdapter:
 
         start = time.time()
         timed_out = False
+        # cwd = repo so relative tool paths and test commands resolve there.
+        # env is inherited (carries OPENROUTER_API_KEY); no env-file needed.
+        # start_new_session puts the agent and any install/test descendants in
+        # their own process group so a timeout can kill the WHOLE tree, not
+        # just the direct python child (codex review #6).
         try:
-            # cwd = repo so relative tool paths and test commands resolve there.
-            # env is inherited (carries OPENROUTER_API_KEY); no env-file needed.
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 cwd=str(repo),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self.timeout + SUBPROCESS_TIMEOUT_BUFFER,
+                start_new_session=True,
             )
-            exit_code = result.returncode
-            stdout, stderr = result.stdout, result.stderr
-        except subprocess.TimeoutExpired as e:
-            timed_out = True
-            exit_code = -1
-            stdout = _decode(e.stdout)
-            stderr = _decode(e.stderr)
-            logger.warning("agent subprocess timed out after %ds", self.timeout)
         except FileNotFoundError as exc:
             raise RuntimeError(f"could not launch agent interpreter: {exc}") from exc
+
+        try:
+            stdout, stderr = proc.communicate(timeout=self.timeout + SUBPROCESS_TIMEOUT_BUFFER)
+            exit_code = proc.returncode
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            exit_code = -1
+            _kill_process_group(proc)
+            stdout, stderr = proc.communicate()
+            logger.warning("agent subprocess timed out after %ds; killed group", self.timeout)
 
         duration = time.time() - start
         (artifact_dir / "agent_stdout.log").write_text(stdout or "")
@@ -163,6 +169,20 @@ class LocalAdapter:
             session_id=(envelope or {}).get("session_key"),
             usage=usage,
         )
+
+
+def _kill_process_group(proc) -> None:
+    """SIGKILL the agent subprocess's whole process group (best effort)."""
+    import os
+    import signal
+
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
 
 
 def _parse_json_envelope(stdout: str) -> dict | None:
