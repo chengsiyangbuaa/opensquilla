@@ -1,0 +1,100 @@
+"""Shared data types for the code-task harness."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import StrEnum
+
+
+class TaskState(StrEnum):
+    """Final outcome of a code-task run.
+
+    The non-``verified``/``failed`` states capture the false-negative modes
+    of the red→green→regression loop that a naive "tests must fail first"
+    rule would misreport (codex design review finding #6).
+    """
+
+    VERIFIED = "verified"
+    # The acceptance criteria already hold on the base commit: the agent's
+    # acceptance test passed before any change (issue fixed upstream, or the
+    # request is already satisfied). Not a failure, but no change was needed.
+    ALREADY_SATISFIED = "already_satisfied"
+    # The task cannot be expressed as an automated test (docs-only, config,
+    # design discussion). Work may still be done, but not machine-verified.
+    NOT_TESTABLE = "not_testable"
+    # Dependency install / build / test harness could not be brought up, so
+    # the loop could not run. The repo environment is the blocker.
+    ENVIRONMENT_BLOCKED = "environment_blocked"
+    # The agent emitted an acceptance manifest the runner could not validate
+    # or run (missing command, malformed schema, test does not exist).
+    INVALID_ACCEPTANCE_TEST = "invalid_acceptance_test"
+    # The agent ran but the acceptance test did not reach green, or
+    # regression introduced new failures.
+    FAILED = "failed"
+
+
+# States in which a non-empty change is expected to exist on the task branch.
+PRODUCTIVE_STATES = frozenset({TaskState.VERIFIED, TaskState.NOT_TESTABLE})
+
+
+@dataclass
+class AcceptanceCheck:
+    """One acceptance test from the agent's verification manifest."""
+
+    name: str
+    command: str  # shell command the runner runs from the repo root
+    # Expected outcome the runner re-confirms after the agent finishes.
+    expected: str = "pass"  # "pass" only, for v1
+    # Runner-observed results.
+    before: str | None = None  # pass | fail | error (red phase, if captured)
+    after: str | None = None  # pass | fail | error (runner re-run)
+
+
+@dataclass
+class RegressionResult:
+    """Outcome of the repo's existing test suite after the change."""
+
+    command: str | None = None
+    ran: bool = False
+    passed: int | None = None
+    failed: int | None = None
+    new_failures: int | None = None
+    raw_tail: str = ""  # last lines of output, for the report
+
+
+@dataclass
+class AgentOutcome:
+    """Structured result of the host agent subprocess."""
+
+    success: bool
+    timeout: bool
+    exit_code: int
+    finish_reason: str  # stop | timeout | error | empty
+    duration_seconds: float = 0.0
+    session_id: str | None = None
+    usage: dict = field(default_factory=dict)
+
+
+@dataclass
+class TaskResult:
+    """Full outcome of a code-task run, serialized to result.json."""
+
+    task_slug: str
+    run_id: str
+    state: TaskState
+    repo: str
+    base_ref: str
+    branch: str
+    source: str  # github-issue | inline | file
+    verified: bool = False
+    assumptions: list[str] = field(default_factory=list)
+    acceptance: list[AcceptanceCheck] = field(default_factory=list)
+    regression: RegressionResult | None = None
+    commits: int = 0
+    files_changed: int = 0
+    diffstat: str = ""
+    artifact_dir: str | None = None
+    patch_path: str | None = None
+    duration_seconds: float | None = None
+    usage: dict = field(default_factory=dict)
+    error: str | None = None

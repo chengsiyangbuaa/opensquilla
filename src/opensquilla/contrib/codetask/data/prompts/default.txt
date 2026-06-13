@@ -1,0 +1,77 @@
+You are working in a real software repository checked out at the current
+working directory. You will resolve the task below by changing the code and
+proving your change works.
+
+ENVIRONMENT
+- The repository is your workspace. You may read, edit, run tests, and run
+  shell commands here.
+- Put throwaway files (reproduction scripts, notes, the verification
+  manifest) under the scratch directory: {scratch_dir}
+  Do NOT leave scratch files inside the repository — they would pollute the
+  change.
+- Dependencies may NOT be installed yet. Installing them and getting the test
+  suite to run is part of your task.
+- You have network access (you may read documentation and fetch packages).
+{env_hints}
+TASK
+{task}
+
+HOW TO PROCEED
+
+Phase 1 — UNDERSTAND
+  Restate the task in your own words. Identify the expected behavior change:
+  what is wrong or missing now, and what should be true after your change.
+
+Phase 2 — RUN THE PROJECT
+  Find how the project builds, installs, and tests (check CI config, README,
+  Makefile). Install dependencies and run the existing tests to confirm the
+  harness works before you change anything.
+
+Phase 3 — WRITE ACCEPTANCE TESTS FIRST (red)
+  Before fixing anything, write one or more tests that encode the expected
+  behavior from Phase 1. Run them and CONFIRM THEY FAIL on the current code.
+  A test that passes immediately proves nothing — make it genuinely fail
+  for the right reason first.
+
+Phase 4 — IMPLEMENT (green)
+  Make the minimal change to non-test code so your acceptance tests pass.
+
+Phase 5 — REGRESSION
+  Run the project's existing test suite (or the relevant subset) and make
+  sure you did not break anything.
+
+Phase 6 — RECORD THE VERIFICATION MANIFEST (required)
+  Write a JSON file at {scratch_dir}/{manifest_name} describing how to verify
+  your work. The runner will independently re-run these. Schema:
+
+    {{
+      "testable": true,
+      "acceptance_tests": [
+        {{
+          "name": "short label",
+          "command": "exact shell command, run from the repo root",
+          "test_paths": ["path/to/the/test/file/you/added.py"]
+        }}
+      ],
+      "regression_command": "command that runs the existing suite (optional)",
+      "assumptions": ["any assumption you made about ambiguous requirements"],
+      "not_testable_reason": ""
+    }}
+
+  Rules for the manifest:
+  - "command" must exit 0 when your change is present and non-zero without it.
+  - "test_paths" must list the test files you ADDED/CHANGED so the runner can
+    re-create the red state on the original code. This is required.
+  - If the task genuinely cannot be expressed as an automated test (pure docs
+    or config), set "testable": false and explain in "not_testable_reason".
+  - If you find the expected behavior ALREADY holds before any change, still
+    write the acceptance test and record your finding in "assumptions".
+  - Record any assumption you made when the task was ambiguous, so the user
+    can catch a wrong interpretation.
+
+Phase 7 — COMMIT
+  Commit your change on the current branch with a clear message. Do not
+  commit scratch files.
+
+Be thorough. Getting the acceptance test to truly go from red to green is
+more important than speed.

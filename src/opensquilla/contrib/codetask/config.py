@@ -1,0 +1,100 @@
+"""Configuration and path helpers for the code-task harness.
+
+Host mode only in v1. Paths default under the OpenSquilla home and are
+overridable with ``OPENSQUILLA_CODETASK_*`` environment variables.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import sys
+from pathlib import Path
+
+from opensquilla.paths import default_opensquilla_home
+
+# ---------------------------------------------------------------------------
+# Agent defaults (shared profile with the swebench mode's tuned values)
+# ---------------------------------------------------------------------------
+DEFAULT_MODEL = ""  # empty = router / config decides
+DEFAULT_THINKING = ""
+DEFAULT_AGENT_TIMEOUT = 1800  # seconds; real-repo tasks include dep install
+DEFAULT_MAX_ITERATIONS = 300
+DEFAULT_ITERATION_TIMEOUT = 600
+DEFAULT_MAX_PROVIDER_RETRIES = 5
+
+# ---------------------------------------------------------------------------
+# Verification
+# ---------------------------------------------------------------------------
+# Filename the agent writes its machine-readable acceptance manifest to,
+# relative to the scratch dir (NOT the repo — must not pollute the diff).
+VERIFICATION_MANIFEST_NAME = "verification.json"
+DEFAULT_ACCEPTANCE_TIMEOUT = 600  # seconds per acceptance command
+DEFAULT_REGRESSION_TIMEOUT = 1800  # seconds for the existing suite
+
+# ---------------------------------------------------------------------------
+# Git identity for task-branch commits
+# ---------------------------------------------------------------------------
+GIT_USER_EMAIL = "opensquilla-codetask@local"
+GIT_USER_NAME = "OpenSquilla Code-Task"
+TASK_BRANCH_PREFIX = "task/"
+
+# Package data shipped with the wheel (prompt template).
+_DATA_DIR = Path(__file__).resolve().parent / "data"
+
+
+def runs_root() -> Path:
+    """Root dir holding per-run working trees and artifacts."""
+    override = os.environ.get("OPENSQUILLA_CODETASK_RUNS_DIR")
+    if override:
+        return Path(override).expanduser()
+    return default_opensquilla_home() / "code-task"
+
+
+def run_dir(run_id: str) -> Path:
+    """Per-run dir: <runs_root>/<run_id>/."""
+    return runs_root() / run_id
+
+
+def repo_dir(run_id: str) -> Path:
+    """Where the target repo is cloned for a run."""
+    return run_dir(run_id) / "repo"
+
+
+def scratch_dir(run_id: str) -> Path:
+    """Agent scratch dir (reproducers, manifest, debug) — outside the repo."""
+    return run_dir(run_id) / "scratch"
+
+
+def artifact_path(run_id: str, name: str) -> Path:
+    """A named artifact under the run dir (task.md, result.json, logs...)."""
+    return run_dir(run_id) / name
+
+
+def prompt_template_path() -> Path:
+    """Prompt template rendered for each task."""
+    override = os.environ.get("OPENSQUILLA_CODETASK_PROMPT_TEMPLATE")
+    if override:
+        return Path(override).expanduser()
+    return _DATA_DIR / "prompts" / "default.txt"
+
+
+def agent_python() -> str:
+    """Interpreter used to launch the host agent subprocess.
+
+    Defaults to the interpreter running the runner so the subprocess always
+    matches the venv that has opensquilla installed; override with
+    OPENSQUILLA_CODETASK_AGENT_PYTHON for unusual installs.
+    """
+    return os.environ.get("OPENSQUILLA_CODETASK_AGENT_PYTHON", sys.executable)
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def slugify(text: str, max_len: int = 40) -> str:
+    """Make a filesystem/branch-safe slug from free text."""
+    slug = _SLUG_RE.sub("-", text.lower()).strip("-")
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-")
+    return slug or "task"
