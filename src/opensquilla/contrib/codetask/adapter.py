@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -61,6 +62,10 @@ class LocalAdapter:
         Writes agent_stdout.log / agent_stderr.log / transcript.jsonl /
         usage.json into ``artifact_dir``.
         """
+        # Start from a clean scratch dir: a stale verification.json from an
+        # earlier run that reused this run_id must never be read back (codex).
+        if scratch_dir.exists():
+            shutil.rmtree(scratch_dir, ignore_errors=True)
         scratch_dir.mkdir(parents=True, exist_ok=True)
         artifact_dir.mkdir(parents=True, exist_ok=True)
         transcript_path = artifact_dir / "transcript.jsonl"

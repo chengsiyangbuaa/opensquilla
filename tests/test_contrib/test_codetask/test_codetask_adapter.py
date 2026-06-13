@@ -91,3 +91,23 @@ def test_timeout_kills_group_and_reports_timeout(monkeypatch, tmp_path):
     assert out.timeout is True
     assert out.finish_reason == "timeout"
     assert killed["group"] is True
+
+
+def test_run_clears_stale_scratch_manifest(monkeypatch, tmp_path):
+    # A leftover verification.json from a prior run reusing this run_id must
+    # be wiped before the agent runs, so the runner cannot read a stale
+    # manifest (codex review).
+    captured = {}
+    _install_popen(monkeypatch, captured, stdout='{"status": "ok", "text": "done"}')
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    scratch = tmp_path / "s"
+    scratch.mkdir()
+    stale = scratch / "verification.json"
+    stale.write_text('{"testable": true, "stale": true}')
+
+    LocalAdapter().run("x", repo=repo, scratch_dir=scratch, artifact_dir=tmp_path / "a")
+
+    # The stale manifest is gone (scratch was recreated clean).
+    assert not stale.exists()
+    assert scratch.is_dir()

@@ -1,7 +1,9 @@
 """Unit tests for the `opensquilla swebench` CLI subcommand."""
 
+import shutil
 import sys
 
+import pytest
 from typer.testing import CliRunner
 
 from opensquilla.cli.swebench_cmd import swebench_app
@@ -9,11 +11,23 @@ from opensquilla.cli.swebench_cmd import swebench_app
 cli_runner = CliRunner()
 
 
+@pytest.fixture
+def docker_present(monkeypatch):
+    """Stub `docker` as installed so the preflight does not mask the assertion.
+
+    The docker preflight runs first in solve/eval/pull; without this, the
+    optional-dependency tests below would assert the docker hint on a
+    Dockerless machine (codex review).
+    """
+    real_which = shutil.which
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else real_which(name)
+    )
+
+
 def test_missing_docker_guides_install_not_dead_end(monkeypatch):
     # When docker is absent, solve must tell the user how to install it (and
     # point at code-task), not fail cryptically or silently.
-    import shutil
-
     monkeypatch.setattr(shutil, "which", lambda name: None)
     result = cli_runner.invoke(swebench_app, ["solve", "django__django-16429"])
     assert result.exit_code == 2
@@ -37,7 +51,7 @@ def test_solve_help():
     assert "--dataset" in result.output
 
 
-def test_solve_without_datasets_gives_install_hint(monkeypatch):
+def test_solve_without_datasets_gives_install_hint(monkeypatch, docker_present):
     # Simulate the missing optional dependency regardless of the test env.
     monkeypatch.setitem(sys.modules, "datasets", None)
     result = cli_runner.invoke(swebench_app, ["solve", "django__django-16429"])
@@ -45,7 +59,7 @@ def test_solve_without_datasets_gives_install_hint(monkeypatch):
     assert "opensquilla[swebench]" in result.output
 
 
-def test_eval_without_swebench_gives_install_hint(monkeypatch):
+def test_eval_without_swebench_gives_install_hint(monkeypatch, docker_present):
     monkeypatch.setitem(sys.modules, "swebench", None)
     result = cli_runner.invoke(swebench_app, ["eval", "preds.jsonl"])
     assert result.exit_code == 2

@@ -119,16 +119,17 @@ def solve(
         patch_path.write_text(patch)
         result.patch_path = str(patch_path)
 
+    # Persist the agent's verification manifest into the run dir for the
+    # record (scratch lives under the system temp dir so the sandbox can
+    # write it; the run dir is the durable home for artifacts). Done before
+    # the timeout return so a manifest emitted before a timeout is kept.
+    _archive_manifest(scratch, rid)
+
     if outcome.timeout:
         result.state = TaskState.ENVIRONMENT_BLOCKED
         result.error = "agent timed out before finishing"
         _persist(result)
         return result
-
-    # Persist the agent's verification manifest into the run dir for the
-    # record (scratch lives under the system temp dir so the sandbox can
-    # write it; the run dir is the durable home for artifacts).
-    _archive_manifest(scratch, rid)
 
     # 6. Verify (red -> green -> regression), runner-authoritative.
     vout = verify(
