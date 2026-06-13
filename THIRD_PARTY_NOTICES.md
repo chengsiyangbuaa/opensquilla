@@ -20,7 +20,8 @@ It covers:
 
 - Component: SKILL.md frontmatter and instruction text for these bundled skills:
   - `sub-agent`
-  - `cron`
+  - `code-task`
+- `cron`
   - `github`
   - `nano-pdf`
   - `skill-creator`

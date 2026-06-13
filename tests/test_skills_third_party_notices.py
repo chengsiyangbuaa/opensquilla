@@ -13,6 +13,7 @@ ORIGINALS = {
     "AwesomeWebpageMetaSkill",
     "awesome-webpage-image-download",
     "awesome-webpage-research",
+    "code-task",
     "deep-research",
     "swe-bench",
     "docx",

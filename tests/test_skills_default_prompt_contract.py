@@ -25,6 +25,7 @@ DEFAULTS = {
     "AwesomeWebpageMetaSkill",
     "ai-video-script",
     "audio-cog",
+    "code-task",
     "cron",
     "deep-research",
     "docx",
