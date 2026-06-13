@@ -1,0 +1,64 @@
+"""Unit tests for opensquilla.contrib.codetask.workspace (real git, local)."""
+
+import subprocess
+
+import pytest
+
+from opensquilla.contrib.codetask import workspace
+
+
+def _git(args, cwd):
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+
+
+@pytest.fixture
+def source_repo(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    _git(["init", "-q"], src)
+    _git(["config", "user.email", "t@t"], src)
+    _git(["config", "user.name", "t"], src)
+    _git(["add", "-A"], src)
+    _git(["commit", "-q", "-m", "init"], src)
+    return src
+
+
+def test_prepare_clones_and_branches(monkeypatch, tmp_path, source_repo):
+    monkeypatch.setenv("OPENSQUILLA_CODETASK_RUNS_DIR", str(tmp_path / "runs"))
+    prepared = workspace.prepare_repo("run1", str(source_repo), slug="fix-it")
+    assert prepared.path.is_dir()
+    assert prepared.branch == "task/fix-it"
+    assert prepared.base_commit
+    # Source repo is never mutated (we cloned).
+    assert (source_repo / "mod.py").exists()
+
+
+def test_build_artifacts_excluded_from_change(monkeypatch, tmp_path, source_repo):
+    monkeypatch.setenv("OPENSQUILLA_CODETASK_RUNS_DIR", str(tmp_path / "runs"))
+    prepared = workspace.prepare_repo("run2", str(source_repo), slug="fix-it")
+    repo = prepared.path
+
+    # Simulate an agent making a real edit AND leaving build junk behind.
+    (repo / "mod.py").write_text("def f():\n    return 2\n")
+    (repo / "__pycache__").mkdir()
+    (repo / "__pycache__" / "mod.cpython-312.pyc").write_bytes(b"\x00junk")
+    egg = repo / "pkg.egg-info"
+    egg.mkdir()
+    (egg / "PKG-INFO").write_text("Metadata-Version: 2.1")
+
+    files_changed, diffstat, patch = workspace.collect_change(repo, prepared.base_commit)
+    # Only the real source edit is captured; junk is excluded.
+    assert "mod.py" in patch
+    assert "pyc" not in patch
+    assert "egg-info" not in patch
+    assert files_changed == 1
+
+
+def test_exclude_file_written(monkeypatch, tmp_path, source_repo):
+    monkeypatch.setenv("OPENSQUILLA_CODETASK_RUNS_DIR", str(tmp_path / "runs"))
+    prepared = workspace.prepare_repo("run3", str(source_repo), slug="x")
+    exclude = prepared.path / ".git" / "info" / "exclude"
+    body = exclude.read_text()
+    assert "__pycache__/" in body
+    assert "*.egg-info/" in body

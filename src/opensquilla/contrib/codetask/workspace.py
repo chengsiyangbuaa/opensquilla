@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from opensquilla.contrib.codetask.config import (
+    BUILD_ARTIFACT_EXCLUDES,
     GIT_USER_EMAIL,
     GIT_USER_NAME,
     TASK_BRANCH_PREFIX,
@@ -99,6 +100,10 @@ def prepare_repo(
     _git(["config", "user.email", GIT_USER_EMAIL], dest)
     _git(["config", "user.name", GIT_USER_NAME], dest)
 
+    # Keep build/cache artifacts (pyc, egg-info, node_modules...) out of the
+    # collected change without creating a tracked .gitignore.
+    _write_repo_excludes(dest)
+
     branch = f"{TASK_BRANCH_PREFIX}{slug}"
     r = _git(["checkout", "-b", branch], dest)
     if r.returncode != 0:
@@ -110,6 +115,28 @@ def prepare_repo(
 
     logger.info("Prepared %s @ %s on branch %s", repo, base_commit[:12], branch)
     return PreparedRepo(path=dest, base_ref=resolved_ref, base_commit=base_commit, branch=branch)
+
+
+def _write_repo_excludes(dest: Path) -> None:
+    """Append build-artifact patterns to the clone's .git/info/exclude.
+
+    Repo-local and untracked, so the agent's dependency install / test runs
+    cannot leak pyc/egg-info/node_modules into the diff, and no .gitignore
+    file appears in the change.
+    """
+    exclude_file = dest / ".git" / "info" / "exclude"
+    try:
+        exclude_file.parent.mkdir(parents=True, exist_ok=True)
+        existing = exclude_file.read_text() if exclude_file.exists() else ""
+        block = "\n# opensquilla code-task build-artifact excludes\n" + "\n".join(
+            BUILD_ARTIFACT_EXCLUDES
+        )
+        with exclude_file.open("a") as fh:
+            if not existing.endswith("\n") and existing:
+                fh.write("\n")
+            fh.write(block + "\n")
+    except OSError as exc:
+        logger.warning("could not write .git/info/exclude: %s", exc)
 
 
 def _normalize_source(repo: str) -> str:

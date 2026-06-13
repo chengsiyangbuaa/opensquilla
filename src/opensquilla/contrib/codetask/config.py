@@ -39,6 +39,31 @@ GIT_USER_EMAIL = "opensquilla-codetask@local"
 GIT_USER_NAME = "OpenSquilla Code-Task"
 TASK_BRANCH_PREFIX = "task/"
 
+# Universal build/cache artifacts to keep OUT of the collected change. These
+# are written to the clone's .git/info/exclude (repo-local, leaves no tracked
+# .gitignore) so dependency install / test runs do not pollute the diff or PR.
+# Only never-legitimate junk — real source edits (incl. pyproject.toml) are
+# untouched.
+BUILD_ARTIFACT_EXCLUDES = [
+    "__pycache__/",
+    "*.pyc",
+    "*.pyo",
+    "*.egg-info/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".ruff_cache/",
+    ".tox/",
+    "*.so",
+    "*.o",
+    "*.class",
+    "node_modules/",
+    "target/",
+    ".coverage",
+    "htmlcov/",
+    "dist/",
+    "build/",
+]
+
 # Package data shipped with the wheel (prompt template).
 _DATA_DIR = Path(__file__).resolve().parent / "data"
 
