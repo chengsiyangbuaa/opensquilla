@@ -233,6 +233,30 @@ class TestLocalizeCommand:
         # ...but the exact repo path (followed by a space) is rewritten.
         assert f"cd {wt} && pytest" in out
 
+    def test_punctuation_siblings_not_corrupted(self, tmp_path):
+        # Filename-legal chars beyond [A-Za-z0-9._-] (codex review #2): the
+        # boundary must NOT fire on these, so the siblings stay intact.
+        repo = tmp_path / "repo"
+        wt = tmp_path / "wt"
+        repo.mkdir()
+        wt.mkdir()
+        for ch in "+@=,~.":
+            sibling = f"{repo}{ch}fixture"
+            out = verification._localize_command(f"cat {sibling}/x", repo, wt)
+            assert sibling in out, f"sibling with '{ch}' was corrupted: {out}"
+            assert str(wt) not in out, f"'{ch}' wrongly treated as a boundary: {out}"
+
+    def test_real_boundaries_rewrite(self, tmp_path):
+        # The genuine path boundaries DO rewrite: '/', space, quote, colon, EOL.
+        repo = tmp_path / "repo"
+        wt = tmp_path / "wt"
+        repo.mkdir()
+        wt.mkdir()
+        for tail in ["/src && x", " && x", '"', ":/other", ";", ")"]:
+            out = verification._localize_command(f"cmd {repo}{tail}", repo, wt)
+            assert str(repo) not in out, f"boundary '{tail}' failed to rewrite: {out}"
+            assert str(wt) in out
+
 
 def test_red_phase_uses_localized_command(monkeypatch, tmp_path):
     """End-to-end: the red-phase run must receive the worktree-localized command.

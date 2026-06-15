@@ -289,17 +289,19 @@ def _localize_command(command: str, repo: Path, target: Path) -> str:
     the intended tree regardless of how the agent wrote it. Longest match
     first so ``/abs/repo/src`` is rewritten before ``/abs/repo``.
 
-    The repo path is only rewritten at a real path boundary (end-of-string or
-    a non-filename character such as ``/`` or a space), so a legitimate SIBLING
-    path like ``/abs/repo-fixture`` is never corrupted (raw substring
-    replacement would wrongly rewrite its ``/abs/repo`` prefix).
+    The repo path is only rewritten when it is followed by ``/`` (a subpath),
+    end-of-string, or an unambiguous shell path-terminator (whitespace, quote,
+    or a shell metacharacter). Any other following character — including the
+    many filename-legal chars like ``-+@=,~.`` and digits — is treated as a
+    SIBLING path (e.g. ``/abs/repo-fixture``, ``/abs/repo+x``) and left intact,
+    rather than trying to enumerate the near-infinite set of filename chars.
     """
     candidates = sorted({str(repo), str(repo.resolve())}, key=len, reverse=True)
     out = command
     for src in candidates:
-        # Negative lookahead: the path must NOT be followed by a filename
-        # continuation char, so ``-fixture`` / ``2`` / ``.bak`` siblings stay.
-        pattern = re.escape(src) + r"(?![A-Za-z0-9._-])"
+        # Positive lookahead for a real path boundary: '/', whitespace,
+        # end-of-string, or a shell word terminator.
+        pattern = re.escape(src) + r"(?=/|\s|$|[" + re.escape("'\"`:;&|<>()") + r"])"
         out = re.sub(pattern, lambda _m: str(target), out)
     return out
 
