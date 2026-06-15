@@ -1405,27 +1405,6 @@ const ChatView = (() => {
       });
     }
 
-    // Router-fx visualisation toggle — purely client-side (no config write):
-    // it only controls whether THIS browser draws the animated grid.
-    const routerFxToggle = _el.querySelector('#toggle-router-fx');
-    if (routerFxToggle) {
-      routerFxToggle.addEventListener('change', () => {
-        _routerFx.enabled = routerFxToggle.checked;
-        _routerFxSavePref();
-        if (_routerFx.enabled) {
-          // Re-render via the normal history rebuild — the render gates now
-          // allow strips, so historical turns get their grid back.
-          _scheduleHistorySync();
-        } else if (_thread) {
-          // Hide now. This is a user-visible preference, so remove the visual
-          // immediately instead of preserving a separate live-strip path.
-          _thread.querySelectorAll('.router-fx').forEach((n) => _routerFxRemoveStrip(n));
-        }
-        if (window.SavingsFX) window.SavingsFX.setEnabled(_routerFx.enabled);
-        UI.toast('Visual effects: ' + (_routerFx.enabled ? 'ON' : 'OFF'), 'info');
-      });
-    }
-
     // Code-task plugin toggle — operator-level (persists to config). Checked =
     // plugin enabled (skill visible to the agent); unchecked = skill name
     // added to skills.disabled so it is gated out of the agent's view.
@@ -1444,6 +1423,27 @@ const ChatView = (() => {
           codetaskToggle.checked = !enabled;  // revert on failure
           UI.toast('Failed: ' + e.message, 'err');
         }
+      });
+    }
+
+    // Router-fx visualisation toggle — purely client-side (no config write):
+    // it only controls whether THIS browser draws the animated grid.
+    const routerFxToggle = _el.querySelector('#toggle-router-fx');
+    if (routerFxToggle) {
+      routerFxToggle.addEventListener('change', () => {
+        _routerFx.enabled = routerFxToggle.checked;
+        _routerFxSavePref();
+        if (_routerFx.enabled) {
+          // Re-render via the normal history rebuild — the render gates now
+          // allow strips, so historical turns get their grid back.
+          _scheduleHistorySync();
+        } else if (_thread) {
+          // Hide now. This is a user-visible preference, so remove the visual
+          // immediately instead of preserving a separate live-strip path.
+          _thread.querySelectorAll('.router-fx').forEach((n) => _routerFxRemoveStrip(n));
+        }
+        if (window.SavingsFX) window.SavingsFX.setEnabled(_routerFx.enabled);
+        UI.toast('Visual effects: ' + (_routerFx.enabled ? 'ON' : 'OFF'), 'info');
       });
     }
 
