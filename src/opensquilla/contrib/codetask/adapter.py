@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ from opensquilla.contrib.codetask.config import (
     DEFAULT_ITERATION_TIMEOUT,
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_MAX_PROVIDER_RETRIES,
+    agent_config_path,
     agent_python,
 )
 from opensquilla.contrib.codetask.types import AgentOutcome
@@ -116,10 +118,16 @@ class LocalAdapter:
         start = time.time()
         timed_out = False
         # cwd = repo so relative tool paths and test commands resolve there.
-        # env is inherited (carries OPENROUTER_API_KEY); no env-file needed.
+        # env inherits OPENROUTER_API_KEY and points the agent at code-task's
+        # own config (OPENSQUILLA_GATEWAY_CONFIG_PATH) so coding-irrelevant tools
+        # are denied while network + squilla_router stay on.
         # start_new_session puts the agent and any install/test descendants in
         # their own process group so a timeout can kill the WHOLE tree, not
         # just the direct python child (codex review #6).
+        agent_env = {
+            **os.environ,
+            "OPENSQUILLA_GATEWAY_CONFIG_PATH": str(agent_config_path()),
+        }
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -128,6 +136,7 @@ class LocalAdapter:
                 stderr=subprocess.PIPE,
                 text=True,
                 start_new_session=True,
+                env=agent_env,
             )
         except FileNotFoundError as exc:
             raise RuntimeError(f"could not launch agent interpreter: {exc}") from exc

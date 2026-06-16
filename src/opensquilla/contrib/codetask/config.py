@@ -121,6 +121,20 @@ def prompt_template_path() -> Path:
     return _DATA_DIR / "prompts" / "default.txt"
 
 
+def agent_config_path() -> Path:
+    """OpenSquilla config the code-task agent loads via OPENSQUILLA_GATEWAY_CONFIG_PATH.
+
+    Gives the agent a focused tool set — coding-irrelevant tools (memory,
+    sessions, sub-agents, cron, messaging, image/media) are denied, but network
+    and the squilla_router stay ON (code-task legitimately fetches docs and
+    installs deps, and the router still picks the model per task).
+    """
+    override = os.environ.get("OPENSQUILLA_CODETASK_AGENT_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return _DATA_DIR / "agent_config" / "config.toml"
+
+
 def agent_python() -> str:
     """Interpreter used to launch the host agent subprocess.
 

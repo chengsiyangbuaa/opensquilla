@@ -60,3 +60,16 @@ class TestPaths:
         body = path.read_text()
         for slot in ("{task}", "{env_hints}", "{scratch_dir}", "{manifest_name}"):
             assert slot in body
+
+
+class TestAgentConfigPath:
+    def test_default_exists(self):
+        p = config.agent_config_path()
+        assert p.name == "config.toml"
+        assert p.exists()
+
+    def test_env_override(self, monkeypatch, tmp_path):
+        custom = tmp_path / "custom.toml"
+        custom.write_text("")
+        monkeypatch.setenv("OPENSQUILLA_CODETASK_AGENT_CONFIG", str(custom))
+        assert config.agent_config_path() == custom

@@ -36,6 +36,7 @@ def _install_popen(monkeypatch, captured, **popen_kw):
         captured["cmd"] = cmd
         captured["cwd"] = kwargs.get("cwd")
         captured["new_session"] = kwargs.get("start_new_session")
+        captured["env"] = kwargs.get("env")
         captured["code"] = cmd[2]
         return FakePopen(cmd, **popen_kw)
 
@@ -111,3 +112,21 @@ def test_run_clears_stale_scratch_manifest(monkeypatch, tmp_path):
     # The stale manifest is gone (scratch was recreated clean).
     assert not stale.exists()
     assert scratch.is_dir()
+
+
+def test_run_points_agent_at_codetask_config(monkeypatch, tmp_path):
+    # The agent subprocess must load code-task's own config (deny list + router)
+    # via OPENSQUILLA_GATEWAY_CONFIG_PATH, while still inheriting the parent env.
+    from opensquilla.contrib.codetask.config import agent_config_path
+
+    captured = {}
+    _install_popen(monkeypatch, captured, stdout='{"status": "ok", "text": "done"}')
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    LocalAdapter().run(
+        "x", repo=repo, scratch_dir=tmp_path / "s", artifact_dir=tmp_path / "a"
+    )
+    env = captured["env"]
+    assert env is not None
+    assert env["OPENSQUILLA_GATEWAY_CONFIG_PATH"] == str(agent_config_path())
+    assert "PATH" in env  # inherits parent env (OPENROUTER_API_KEY passes through)
