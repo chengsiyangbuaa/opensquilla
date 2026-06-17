@@ -3231,6 +3231,7 @@ class TurnRunner:
             ctx.denied_tools.update(
                 coding_mode_denied_tools(bool(getattr(_skills_cfg, "coding_mode", False)))
             )
+            ctx.coding_mode = bool(getattr(_skills_cfg, "coding_mode", False))
             log.debug(
                 "tool_policy.policy_pre",
                 allowed_tool_count=len(self._tool_registry.to_tool_definitions(ctx)),

@@ -58,6 +58,11 @@ _EXEC_TOOL_TIMEOUT_PADDING = _APPROVAL_RETRY_WAIT_SECONDS + 5.0
 _DEFAULT_BACKGROUND_TIMEOUT = 1800.0
 _MAX_BACKGROUND_TIMEOUT = 3600.0
 _DEFAULT_PROCESS_WAIT_TIMEOUT = 600.0
+# Coding mode runs code-task (build/install for many minutes) via
+# background_process and awaits it; default a single wait to 1 hour so it
+# spans a full code-task run instead of timing out and making the agent
+# relaunch it.
+_CODING_PROCESS_WAIT_TIMEOUT = 3600.0
 _MAX_PROCESS_WAIT_TIMEOUT = _MAX_BACKGROUND_TIMEOUT
 _PROCESS_WAIT_TIMEOUT_PADDING = 5.0
 _BACKGROUND_TERMINATE_TIMEOUT = 1.0
@@ -423,13 +428,22 @@ def _resolve_background_timeout(timeout: float | int | None) -> float:
     return max(0.01, min(value, _MAX_BACKGROUND_TIMEOUT))
 
 
+def _process_wait_default() -> float:
+    """Default process(wait) timeout: 1 hour while coding mode is on, else 10 min."""
+    ctx = current_tool_context.get()
+    if ctx is not None and getattr(ctx, "coding_mode", False):
+        return _CODING_PROCESS_WAIT_TIMEOUT
+    return _DEFAULT_PROCESS_WAIT_TIMEOUT
+
+
 def _resolve_process_wait_timeout(timeout: float | int | None) -> float:
+    default = _process_wait_default()
     if timeout is None:
-        return _DEFAULT_PROCESS_WAIT_TIMEOUT
+        return default
     try:
         value = float(timeout)
     except (TypeError, ValueError):
-        return _DEFAULT_PROCESS_WAIT_TIMEOUT
+        return default
     return max(0.01, min(value, _MAX_PROCESS_WAIT_TIMEOUT))
 
 
