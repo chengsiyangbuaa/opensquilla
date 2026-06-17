@@ -120,3 +120,10 @@ body AND comments are pulled in (comments often hold the repro steps).
   there. Works the same from TUI, Web UI, or any channel.
 - v1 is host-only and always clones fresh (no `--in-place`). For untrusted
   repositories, a Docker-isolated backend is planned but not in v1.
+
+## Verification modes
+
+`code-task solve` defaults to `--verification-mode red-green`: the agent writes acceptance tests, the runner proves red on the base and green on the change, then runs regression.
+
+For building an app or UI **from scratch** (e.g. an Electron + Vite + React desktop app) there is no red->green test loop. Use `--verification-mode build`: the runner owns a fixed checklist (`npm ci` -> `npm run build` -> `npx electron-builder --linux --dir --publish never`) and `state=verified` means the app actually builds and packages. The result carries `verification_kind=build`. Preview/launch is intentionally out of scope (a desktop GUI is not run on a headless server).
+

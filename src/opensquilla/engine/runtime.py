@@ -3221,6 +3221,16 @@ class TurnRunner:
                     hard_denied=None,
                 )
             ctx = self._apply_runtime_capability_denies(ctx)
+            # Coding mode (operator toggle ON): deny in-session write tools
+            # so all code changes are forced through the code-task plugin
+            # rather than the agent hand-editing files. Enforced at tool
+            # build + dispatch (ctx.denied_tools is honored by dispatch).
+            from opensquilla.tools.policy_config import coding_mode_denied_tools
+
+            _skills_cfg = getattr(self._config, "skills", None)
+            ctx.denied_tools.update(
+                coding_mode_denied_tools(bool(getattr(_skills_cfg, "coding_mode", False)))
+            )
             log.debug(
                 "tool_policy.policy_pre",
                 allowed_tool_count=len(self._tool_registry.to_tool_definitions(ctx)),

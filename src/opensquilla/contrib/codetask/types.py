@@ -63,6 +63,27 @@ class RegressionResult:
 
 
 @dataclass
+class BuildCheck:
+    """One runner-owned build-verification command and its observed result."""
+
+    name: str  # npm_ci | build | package
+    command: str
+    ran: bool = False
+    ok: bool = False
+    exit_code: int | None = None
+    duration_seconds: float | None = None
+    raw_tail: str = ""  # last lines of output, for the report
+
+
+@dataclass
+class BuildResult:
+    """Outcome of build-mode verification (the fixed, runner-owned checklist)."""
+
+    checks: list[BuildCheck] = field(default_factory=list)
+    all_passed: bool = False
+
+
+@dataclass
 class AgentOutcome:
     """Structured result of the host agent subprocess."""
 
@@ -90,6 +111,8 @@ class TaskResult:
     assumptions: list[str] = field(default_factory=list)
     acceptance: list[AcceptanceCheck] = field(default_factory=list)
     regression: RegressionResult | None = None
+    verification_kind: str = "red_green"  # red_green | build
+    build: BuildResult | None = None
     commits: int = 0
     files_changed: int = 0
     diffstat: str = ""

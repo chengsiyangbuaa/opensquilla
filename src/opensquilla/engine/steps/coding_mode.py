@@ -24,11 +24,16 @@ _CODING_MODE_DIRECTIVE = (
     "resolve a GitHub issue), you MUST do the work by running\n"
     "    opensquilla code-task solve --repo <url-or-path> "
     '(--issue N | --task "<text>" | --task-file <path>) --yes\n'
+    "For building an app or UI from scratch (e.g. an Electron + React "
+    "desktop app), add --verification-mode build so code-task verifies the "
+    "app compiles and packages instead of running red->green tests.\n"
     "code-task usually runs for several minutes; if you launch it via "
     'background_process, await it with process(action="wait", session_id=...) '
     "rather than polling process(action=\"poll\") in a loop.\n"
     "Do NOT clone the repository yourself and do NOT hand-edit its files in "
-    "this session: in-session edits skip code-task's isolation and the "
+    "this session: the file-editing tools (write_file, edit_file, apply_patch, "
+    "execute_code, git_commit, create_*) are DISABLED while coding mode is on, and "
+    "in-session edits skip code-task's isolation and the "
     "runner-verified red→green proof, so they are not equivalent and are not "
     "allowed while coding mode is on. Read-only requests (showing structure, "
     "explaining code) and ordinary conversation are answered normally."

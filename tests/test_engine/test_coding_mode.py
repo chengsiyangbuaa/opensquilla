@@ -10,6 +10,10 @@ from opensquilla.engine.steps.coding_mode import enforce_coding_mode
 from opensquilla.engine.steps.skills_filter import _eligibility_ctx
 from opensquilla.gateway.config import GatewayConfig
 from opensquilla.gateway.rpc_config import _SAFE_WRITE_PATCH_PATHS
+from opensquilla.tools.policy_config import (
+    CODING_MODE_DENIED_TOOLS,
+    coding_mode_denied_tools,
+)
 from opensquilla.skills.eligibility import (
     CODING_MODE_SKILLS,
     effective_disabled,
@@ -68,6 +72,7 @@ class TestDirectiveInjection:
         assert base == "BASE"
         assert "CODING MODE" in suffix
         assert "opensquilla code-task solve" in suffix
+        assert "DISABLED while coding mode is on" in suffix
         assert "code-task" in ctx.metadata["pinned_skills"]
         assert ctx.metadata["coding_mode"] is True
 
@@ -87,3 +92,65 @@ class TestDirectiveInjection:
         assert base == "BASE"
         assert suffix.startswith("PRIOR")
         assert "CODING MODE" in suffix
+
+
+class TestWriteToolDeny:
+    """coding ON denies the in-session write tools (forces code-task)."""
+
+    def test_on_denies_write_tools(self):
+        denied = coding_mode_denied_tools(True)
+        for t in ("write_file", "edit_file", "apply_patch", "execute_code", "git_commit"):
+            assert t in denied
+        assert denied == CODING_MODE_DENIED_TOOLS
+
+    def test_off_denies_nothing(self):
+        assert coding_mode_denied_tools(False) == frozenset()
+
+    def test_shell_and_read_tools_kept(self):
+        # shell stays so the agent can still LAUNCH code-task; reads stay.
+        denied = coding_mode_denied_tools(True)
+        for t in ("exec_command", "background_process", "process",
+                  "read_file", "list_dir", "grep_search", "git_diff"):
+            assert t not in denied
+
+
+class TestWriteToolDenyEnforcement:
+    """Integration: the deny set actually drops write tools from the live
+    tool surface built from the default registry (pins the enforcement seam,
+    not just the pure helper)."""
+
+    def _surface(self, denied):
+        import opensquilla.tools.builtin  # noqa: F401  (registers builtins)
+        from opensquilla.tools.registry import get_default_registry
+        from opensquilla.tools.types import CallerKind, ToolContext
+
+        registry = get_default_registry()
+        ctx = ToolContext(
+            is_owner=True,
+            caller_kind=CallerKind.AGENT,
+            denied_tools=set(denied),
+        )
+        return {t.name for t in registry.to_tool_definitions(ctx)}
+
+    def test_on_drops_write_tools_from_surface(self):
+        names = self._surface(coding_mode_denied_tools(True))
+        assert {
+            "write_file",
+            "edit_file",
+            "apply_patch",
+            "execute_code",
+            "git_commit",
+        }.isdisjoint(names)
+
+    def test_on_keeps_codetask_launch_and_read_tools(self):
+        # shell stays so the agent can still LAUNCH `opensquilla code-task solve`;
+        # read-only tools stay so it can understand the repo.
+        names = self._surface(coding_mode_denied_tools(True))
+        for keep in ("exec_command", "background_process", "process",
+                     "read_file", "list_dir", "grep_search"):
+            assert keep in names, keep
+
+    def test_off_is_noop_keeps_write_tools(self):
+        names = self._surface(coding_mode_denied_tools(False))
+        assert "write_file" in names
+        assert "edit_file" in names

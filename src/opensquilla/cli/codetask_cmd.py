@@ -40,6 +40,11 @@ def solve(
     model: str = typer.Option("", help="Model override; empty lets the router/config decide."),
     thinking: str = typer.Option("", help="Thinking effort; empty lets config decide."),
     timeout: int = typer.Option(1800, help="Agent timeout in seconds."),
+    verification_mode: str = typer.Option(
+        "red-green",
+        "--verification-mode",
+        help="How to verify: red-green (agent tests, default) or build (app build checklist).",
+    ),
     run_id: str = typer.Option("", help="Run identifier (auto-generated when empty)."),
     json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
     yes: bool = typer.Option(
@@ -90,6 +95,7 @@ def solve(
             model=model,
             thinking=thinking,
             timeout=timeout,
+            verification_mode=verification_mode,
             run_id=run_id or None,
         )
     except InputError as exc:

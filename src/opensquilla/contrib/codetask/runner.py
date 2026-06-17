@@ -45,6 +45,7 @@ def solve(
     model: str = "",
     thinking: str = "",
     timeout: int = config.DEFAULT_AGENT_TIMEOUT,
+    verification_mode: str = "red-green",
     run_id: str | None = None,
 ) -> TaskResult:
     """Run one code-task end-to-end and return a structured TaskResult."""
@@ -81,7 +82,7 @@ def solve(
 
     # 3. Probe environment + render prompt.
     probe = envprobe.probe(prepared.path)
-    prompt = _render_prompt(task_md, probe.as_hints(), scratch)
+    prompt = _render_prompt(task_md, probe.as_hints(), scratch, verification_mode)
     config.artifact_path(rid, "prompt.txt").write_text(prompt)
 
     result = TaskResult(
@@ -94,6 +95,7 @@ def solve(
         source=spec.source,
         artifact_dir=str(artifact_dir),
     )
+    result.verification_kind = "build" if verification_mode == "build" else "red_green"
 
     # 4. Run the agent on the host.
     adapter = LocalAdapter(model=model, thinking=thinking, timeout=timeout)
@@ -131,19 +133,31 @@ def solve(
         _persist(result)
         return result
 
-    # 6. Verify (red -> green -> regression), runner-authoritative.
-    vout = verify(
-        repo=prepared.path,
-        base_commit=prepared.base_commit,
-        scratch_dir=scratch,
-    )
-    result.state = vout.state
-    result.acceptance = vout.acceptance
-    result.regression = vout.regression
-    result.assumptions = vout.assumptions
-    result.verified = vout.state == TaskState.VERIFIED
-    if vout.detail and not result.error:
-        result.error = vout.detail
+    # 6. Verify, runner-authoritative. Build mode runs a fixed build
+    #    checklist (from-scratch apps have no red->green test loop);
+    #    red-green mode runs the agent's acceptance tests + regression.
+    if verification_mode == "build":
+        from opensquilla.contrib.codetask.build_verify import verify_build
+
+        bout = verify_build(prepared.path)
+        result.state = bout.state
+        result.build = bout.build
+        result.verified = bout.state == TaskState.VERIFIED
+        if bout.detail and not result.error:
+            result.error = bout.detail
+    else:
+        vout = verify(
+            repo=prepared.path,
+            base_commit=prepared.base_commit,
+            scratch_dir=scratch,
+        )
+        result.state = vout.state
+        result.acceptance = vout.acceptance
+        result.regression = vout.regression
+        result.assumptions = vout.assumptions
+        result.verified = vout.state == TaskState.VERIFIED
+        if vout.detail and not result.error:
+            result.error = vout.detail
 
     _persist(result)
     return result
@@ -160,8 +174,10 @@ def _archive_manifest(scratch: Path, run_id: str) -> None:
         pass
 
 
-def _render_prompt(task_md: str, hints: str, scratch: Path) -> str:
-    template = config.prompt_template_path().read_text()
+def _render_prompt(
+    task_md: str, hints: str, scratch: Path, verification_mode: str = "red-green"
+) -> str:
+    template = config.prompt_template_path(verification_mode).read_text()
     hints_block = f"\n{hints}\n" if hints else ""
     return template.format(
         task=task_md,

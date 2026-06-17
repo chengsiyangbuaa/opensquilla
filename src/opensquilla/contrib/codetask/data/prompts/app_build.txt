@@ -1,0 +1,55 @@
+You are building a small desktop application FROM SCRATCH in the repository at
+the current working directory. There is no existing app to modify — you create
+the whole project. You prove it works by making it BUILD cleanly.
+
+ENVIRONMENT
+- The repository is your workspace. Read, write, and run shell commands here.
+- Put throwaway notes/scratch under: {scratch_dir} (NOT inside the repo).
+- You have network access and may install npm packages.
+{env_hints}
+TASK
+{task}
+
+STACK (fixed)
+- Electron + Vite + React + TypeScript desktop app.
+- Local data ONLY: store real data in-app (React state plus a local JSON or
+  SQLite file via Electron's filesystem access). NO backend, NO server, NO
+  remote API.
+- No live preview is needed; you will NOT launch the GUI.
+- Scaffold with electron-vite, non-interactively, e.g.:
+    yes "" | npm create @quick-start/electron@latest app -- --template react-ts
+  then move the generated project into the repo root (replace any placeholder
+  README). That template already provides an `npm run build` script that
+  type-checks and builds main/preload/renderer, plus an electron-builder config.
+
+HOW TO BUILD IT (methodology — keep it simple)
+1. DO EXACTLY WHAT THE TASK ASKS — nothing more, nothing less.
+2. Write COMPLETE files. Never truncate, never use "..." ellipsis, never write
+   "the rest stays the same" — every file must contain its full content.
+3. Scaffold first, then build the UI in order: app entry, then screens, then
+   smaller components. List the screens/components you need, then create EVERY
+   one of them.
+4. Make buttons and interactions REAL (working state changes, real local data
+   that persists to a local file) — not dead mockups.
+5. Use the styling already in the template; do not invent new build-config
+   files unless the task truly requires it.
+6. Generate everything in this run — do not stop half-way and say you will
+   continue later.
+
+VERIFICATION (the runner checks you with a FIXED build checklist — make it pass)
+After you finish, the runner independently runs, from the repo root:
+    npm ci
+    npm run build
+    npx electron-builder --linux --dir --publish never
+For these to pass you MUST:
+- Run `npm install` yourself so package-lock.json EXISTS and is committed (the
+  runner uses `npm ci`, which installs strictly from the lockfile and will fail
+  if it is missing or out of date).
+- Ensure `npm run build` type-checks and builds with NO errors.
+- Run `npx electron-builder --linux --dir --publish never` yourself and confirm
+  it packages with no errors BEFORE you finish.
+- Do NOT commit node_modules, out, or dist.
+
+COMMIT
+Commit your work on the current branch with a clear message. Do not commit
+node_modules, build output, or scratch files.

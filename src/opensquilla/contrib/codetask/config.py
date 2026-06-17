@@ -113,12 +113,17 @@ def artifact_path(run_id: str, name: str) -> Path:
     return run_dir(run_id) / name
 
 
-def prompt_template_path() -> Path:
-    """Prompt template rendered for each task."""
+def prompt_template_path(verification_mode: str = "red-green") -> Path:
+    """Prompt template rendered for each task.
+
+    Build mode (app/from-scratch generation) uses a build-oriented template;
+    the default is the red->green->regression template.
+    """
     override = os.environ.get("OPENSQUILLA_CODETASK_PROMPT_TEMPLATE")
     if override:
         return Path(override).expanduser()
-    return _DATA_DIR / "prompts" / "default.txt"
+    name = "app_build.txt" if verification_mode == "build" else "default.txt"
+    return _DATA_DIR / "prompts" / name
 
 
 def agent_config_path() -> Path:
