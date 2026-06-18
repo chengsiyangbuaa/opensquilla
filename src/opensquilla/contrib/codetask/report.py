@@ -93,5 +93,9 @@ def render(result: TaskResult) -> str:
         lines.append(f"  diff     {result.patch_path}")
     if result.artifact_dir:
         lines.append(f"  artifacts {result.artifact_dir}")
+    _build = getattr(result, "build", None)
+    if _build is not None and getattr(_build, "installer_paths", None):
+        for _p in _build.installer_paths:
+            lines.append(f"  installer {_p}")
 
     return "\n".join(lines)

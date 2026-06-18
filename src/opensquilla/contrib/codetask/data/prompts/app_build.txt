@@ -40,14 +40,14 @@ VERIFICATION (the runner checks you with a FIXED build checklist — make it pas
 After you finish, the runner independently runs, from the repo root:
     npm ci
     npm run build
-    npx electron-builder --linux --dir --publish never
+    npx electron-builder        # host target: --mac (.dmg) on macOS, --linux --dir on Linux
 For these to pass you MUST:
 - Run `npm install` yourself so package-lock.json EXISTS and is committed (the
   runner uses `npm ci`, which installs strictly from the lockfile and will fail
   if it is missing or out of date).
 - Ensure `npm run build` type-checks and builds with NO errors.
-- Run `npx electron-builder --linux --dir --publish never` yourself and confirm
-  it packages with no errors BEFORE you finish.
+- Confirm `npm run build` succeeds, and optionally run electron-builder for your
+  platform (`--mac` on macOS, `--linux --dir` on Linux) to confirm it packages.
 - Do NOT commit node_modules, out, or dist.
 
 COMMIT

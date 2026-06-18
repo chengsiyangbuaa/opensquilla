@@ -81,6 +81,8 @@ class BuildResult:
 
     checks: list[BuildCheck] = field(default_factory=list)
     all_passed: bool = False
+    installer_path: str | None = None  # produced .dmg on macOS deploys
+    installer_paths: list[str] = field(default_factory=list)  # all .dmg deliverables
 
 
 @dataclass

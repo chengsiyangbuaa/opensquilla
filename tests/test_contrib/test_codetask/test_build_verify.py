@@ -95,3 +95,53 @@ def test_command_not_found_is_recorded(tmp_path, monkeypatch):
     assert out.state is TaskState.ENVIRONMENT_BLOCKED  # npm_ci is the first check
     assert out.build.checks[0].ran is False
     assert "not found" in out.build.checks[0].raw_tail
+
+
+def test_package_step_is_mac_dmg_on_darwin(monkeypatch):
+    monkeypatch.setattr(build_verify.sys, "platform", "darwin")
+    name, argv = build_verify._package_step()
+    assert name == "package" and "--mac" in argv
+
+
+def test_package_step_is_linux_dir_off_darwin(monkeypatch):
+    monkeypatch.setattr(build_verify.sys, "platform", "linux")
+    name, argv = build_verify._package_step()
+    assert "--linux" in argv and "--dir" in argv
+
+
+def test_find_installers_empty_off_darwin(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_verify.sys, "platform", "linux")
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "x.dmg").write_text("y")
+    assert build_verify._find_installers(tmp_path) == []
+
+
+def test_find_installers_lists_all_dmgs_on_darwin(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_verify.sys, "platform", "darwin")
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "app-arm64.dmg").write_text("y")
+    (tmp_path / "dist" / "app-x64.dmg").write_text("y")
+    got = build_verify._find_installers(tmp_path)
+    assert len(got) == 2 and all(p.endswith(".dmg") for p in got)
+
+
+def test_darwin_clean_package_without_dmg_is_failed(tmp_path, monkeypatch):
+    repo = _make_repo(tmp_path)
+    monkeypatch.setattr(build_verify.sys, "platform", "darwin")
+    monkeypatch.setattr(build_verify.subprocess, "run", lambda *a, **k: _FakeProc(0, "ok"))
+    out = build_verify.verify_build(repo)  # all steps exit 0 but dist/ has no .dmg
+    assert out.state is TaskState.FAILED
+    assert "no .dmg" in out.detail
+    assert out.build.all_passed is False
+
+
+def test_darwin_package_with_dmg_is_verified(tmp_path, monkeypatch):
+    repo = _make_repo(tmp_path)
+    monkeypatch.setattr(build_verify.sys, "platform", "darwin")
+    monkeypatch.setattr(build_verify.subprocess, "run", lambda *a, **k: _FakeProc(0, "ok"))
+    (repo / "dist").mkdir()
+    (repo / "dist" / "app-1.0.0.dmg").write_text("y")
+    out = build_verify.verify_build(repo)
+    assert out.state is TaskState.VERIFIED
+    assert out.build.installer_path.endswith("app-1.0.0.dmg")
+    assert out.build.installer_paths == [out.build.installer_path]
