@@ -33,6 +33,11 @@ def test_missing_lockfile_is_environment_blocked(tmp_path):
 
 
 def test_all_checks_pass_is_verified(tmp_path, monkeypatch):
+    # Pin a non-darwin host so this exercises the platform-agnostic
+    # "all checks pass -> VERIFIED" path deterministically. The darwin path
+    # (which additionally requires a produced .dmg) is covered separately by
+    # test_darwin_package_with_dmg_is_verified / _without_dmg_is_failed.
+    monkeypatch.setattr(build_verify.sys, "platform", "linux")
     repo = _make_repo(tmp_path)
     monkeypatch.setattr(build_verify.subprocess, "run", lambda *a, **k: _FakeProc(0, "ok"))
     out = build_verify.verify_build(repo)
@@ -123,6 +128,26 @@ def test_find_installers_lists_all_dmgs_on_darwin(tmp_path, monkeypatch):
     (tmp_path / "dist" / "app-x64.dmg").write_text("y")
     got = build_verify._find_installers(tmp_path)
     assert len(got) == 2 and all(p.endswith(".dmg") for p in got)
+
+
+def test_find_installers_finds_dmg_in_custom_output_dir_on_darwin(tmp_path, monkeypatch):
+    # electron-builder `directories.output: release` (not the default dist/).
+    monkeypatch.setattr(build_verify.sys, "platform", "darwin")
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release" / "app-1.0.0-arm64.dmg").write_text("y")
+    got = build_verify._find_installers(tmp_path)
+    assert len(got) == 1 and got[0].endswith("release/app-1.0.0-arm64.dmg")
+
+
+def test_find_installers_ignores_node_modules_dmgs(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_verify.sys, "platform", "darwin")
+    nm = tmp_path / "node_modules" / "some-pkg"
+    nm.mkdir(parents=True)
+    (nm / "vendored.dmg").write_text("y")  # must NOT be picked up
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release" / "real.dmg").write_text("y")
+    got = build_verify._find_installers(tmp_path)
+    assert got == [str(tmp_path / "release" / "real.dmg")]
 
 
 def test_darwin_clean_package_without_dmg_is_failed(tmp_path, monkeypatch):

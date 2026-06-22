@@ -80,6 +80,15 @@ opensquilla code-task solve --repo <url-or-path> ( --issue N | --task "<text>" |
    change ("what is wrong/missing now, what should be true after"). If the
    request is too vague to write an acceptance test for, ask the user to
    clarify BEFORE running — do not burn a run on a guess.
+   - **Build-from-scratch (`--verification-mode build`)** has no acceptance
+     test. Decide by whether you know WHAT THE APP SHOULD DO, not just its kind.
+     If the request is only a broad app type/goal with no concrete features,
+     target user, or scope (e.g. "make me an English-learning app", "a drawing
+     app"), ask 1-2 focused questions (core features/screens and who it's for),
+     then STOP — do not run code-task until answered. If it already names
+     concrete features, scope, or target users, do NOT ask — build it with
+     sensible defaults and state your assumptions. Never ask about
+     platform/framework/styling. At most 2 questions; never interrogate.
 
 ## GitHub issue mode needs `gh`
 
@@ -87,6 +96,24 @@ opensquilla code-task solve --repo <url-or-path> ( --issue N | --task "<text>" |
 authenticated, tell the user to `gh auth login`, or fall back: have them
 paste the issue text and use `--task` / `--task-file` instead. The issue
 body AND comments are pulled in (comments often hold the repro steps).
+
+## While it runs — watch the run dir, not the source repo
+
+code-task clones the `--repo` source into an isolated run directory and does
+all its work there. The **source repo stays empty until a run finishes and
+VERIFIES**, at which point (build mode, local source) the change is committed
+back. Therefore:
+
+- Do NOT judge progress by the source repo's contents, and do NOT conclude the
+  run is "stuck" because the source still looks empty — that is expected.
+- A run takes several minutes. Let it finish: `process(action="wait")` on the
+  background session. Do NOT kill it, do NOT "clean and retry", and do NOT
+  launch the same task again while one is still running.
+- The run prints its run directory on startup and writes a live
+  `<run_dir>/status.json` (phase = preparing → agent_running → collecting_change
+  → verifying → completed). Watch that if you want progress.
+- Decide success only from the returned result `state` and
+  `build.installer_path` (which points into the run dir, not the source).
 
 ## Reading the result
 

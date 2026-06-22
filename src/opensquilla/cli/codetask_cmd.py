@@ -84,6 +84,22 @@ def solve(
         if not typer.confirm(f"Run code-task against {repo}?", default=False):
             raise typer.Exit(1)
 
+    # Resolve the run id here so we can announce the run directory on STDOUT's
+    # sibling stream (stderr) before the long run, and stamp a terminal status
+    # if the run crashes unexpectedly. The --json result stays the only thing on
+    # stdout, so a consumer reading stdout alone still gets clean JSON.
+    from opensquilla.contrib.codetask import config as ct_config
+    from opensquilla.contrib.codetask.runner import _default_run_id, _write_status
+
+    rid = run_id or _default_run_id("task")
+    run_dir = ct_config.run_dir(rid)
+    typer.echo(
+        f"[code-task] run started: run_id={rid} artifact_dir={run_dir} "
+        f"status={run_dir / 'status.json'} "
+        "(work happens in the run dir, NOT in the --repo source)",
+        err=True,
+    )
+
     try:
         result = run_solve(
             repo=repo,
@@ -96,7 +112,7 @@ def solve(
             thinking=thinking,
             timeout=timeout,
             verification_mode=verification_mode,
-            run_id=run_id or None,
+            run_id=rid,
         )
     except InputError as exc:
         typer.secho(str(exc), err=True, fg=typer.colors.RED)
@@ -104,6 +120,11 @@ def solve(
     except WorkspaceError as exc:
         typer.secho(f"workspace error: {exc}", err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from exc
+    except Exception as exc:
+        # Unexpected crash anywhere in solve(): stamp a terminal status so a
+        # watcher does not see status.json frozen mid-phase, then re-raise.
+        _write_status(rid, "crashed", error=str(exc)[:500])
+        raise
 
     if json_output:
         from opensquilla.contrib.codetask.runner import _result_to_dict

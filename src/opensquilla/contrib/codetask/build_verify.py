@@ -53,15 +53,23 @@ def _checklist() -> list[tuple[str, list[str]]]:
 def _find_installers(repo: Path) -> list[str]:
     """Produced installer artifacts (the .dmg files) on macOS — the deliverables.
 
-    Multi-arch/universal builds can emit more than one .dmg, so return all.
-    Empty off macOS (the Linux/CI package step intentionally builds no installer).
+    electron-builder's output directory is configurable (``directories.output``,
+    default ``dist``, but a generated app may set ``release/`` or another name),
+    so search the whole repo tree for ``*.dmg`` instead of only ``dist/`` — else
+    a real, successful build whose installer landed elsewhere is misreported as
+    "produced no .dmg". ``node_modules`` and ``.git`` are pruned (no build output
+    lives there and walking them is slow). Multi-arch/universal builds can emit
+    more than one .dmg, so return all. Empty off macOS (the Linux/CI package step
+    intentionally builds no installer).
     """
     if sys.platform != "darwin":
         return []
-    dist = repo / "dist"
-    if not dist.is_dir():
-        return []
-    return [str(p) for p in sorted(dist.glob("*.dmg"))]
+    skip = {"node_modules", ".git"}
+    found: list[str] = []
+    for root, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in skip]
+        found.extend(os.path.join(root, f) for f in files if f.endswith(".dmg"))
+    return sorted(found)
 
 
 @dataclass

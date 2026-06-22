@@ -77,6 +77,40 @@ class TestDirectiveInjection:
         assert ctx.metadata["coding_mode"] is True
 
     @pytest.mark.asyncio
+    async def test_directive_clarify_gate_asks_when_only_a_category(self):
+        """Build-from-scratch clarify gate: a bare app category with no concrete
+        features/scope/user gets 1-2 questions; a request that names concrete
+        features/scope builds directly. Asserted as normalized concept groups so
+        harmless rewording survives."""
+        ctx = await enforce_coding_mode(self._ctx(True))
+        _, suffix = ctx.system_prompt
+        low = suffix.lower()
+        # Trigger is "only a category / no concrete features".
+        assert "only a" in low and "category" in low
+        assert "concrete features" in low
+        # Build (don't ask) once concrete features/scope/users are named.
+        assert "do not ask" in low and "build it" in low
+        # Bounded (<=2) and ask-then-stop (Lovable's "wait before calling tools").
+        assert "1-2" in low and "at most 2" in low
+        assert "stop this turn" in low
+        assert "do not call code-task until" in low
+        # Defaultable details are never asked about.
+        assert "platform" in low and "styling" in low
+
+    @pytest.mark.asyncio
+    async def test_directive_warns_against_killing_running_code_task(self):
+        """Isolation rule: the source repo stays empty until verified, so don't
+        judge progress by it and don't kill/retry a running code-task."""
+        ctx = await enforce_coding_mode(self._ctx(True))
+        _, suffix = ctx.system_prompt
+        low = suffix.lower()
+        assert "isolated run directory" in low
+        assert "stays empty until" in low  # source empty until verified
+        assert "do not judge progress by the source" in low
+        assert "do not kill" in low
+        assert "status.json" in low
+
+    @pytest.mark.asyncio
     async def test_off_injects_nothing(self):
         ctx = await enforce_coding_mode(self._ctx(False))
         # system_prompt unchanged (still a plain str), no pin.

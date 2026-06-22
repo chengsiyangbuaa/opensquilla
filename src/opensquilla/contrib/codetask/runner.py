@@ -74,6 +74,13 @@ def solve(
     scratch = config.scratch_dir(rid)
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
+    # Work happens in this isolated run dir, NOT in the --repo source (which
+    # stays empty until a VERIFIED change is persisted back). The CLI announces
+    # the run dir on startup; here we start the status heartbeat so an observer
+    # watches progress in the run dir instead of misreading the empty source as
+    # "stuck".
+    _write_status(rid, "preparing", repo=repo, run_dir=str(artifact_dir))
+
     # 2. Persist task.md.
     task_md = render_task_md(
         spec, repo=repo, base_ref=prepared.base_ref, commit=prepared.base_commit
@@ -99,6 +106,7 @@ def solve(
     result.verification_kind = "build" if verification_mode == "build" else "red_green"
 
     # 4. Run the agent on the host.
+    _write_status(rid, "agent_running", repo=repo, run_dir=str(artifact_dir))
     adapter = LocalAdapter(model=model, thinking=thinking, timeout=timeout)
     try:
         outcome = adapter.run(
@@ -113,6 +121,7 @@ def solve(
     result.duration_seconds = outcome.duration_seconds
 
     # 5. Collect the change from the task branch.
+    _write_status(rid, "collecting_change", run_dir=str(artifact_dir))
     files_changed, diffstat, patch = workspace.collect_change(prepared.path, prepared.base_commit)
     result.files_changed = files_changed
     result.diffstat = diffstat
@@ -137,6 +146,7 @@ def solve(
     # 6. Verify, runner-authoritative. Build mode runs a fixed build
     #    checklist (from-scratch apps have no red->green test loop);
     #    red-green mode runs the agent's acceptance tests + regression.
+    _write_status(rid, "verifying", mode=verification_mode, run_dir=str(artifact_dir))
     if verification_mode == "build":
         from opensquilla.contrib.codetask.build_verify import verify_build
 
@@ -218,7 +228,44 @@ def _result_to_dict(result: TaskResult) -> dict[str, Any]:
     return data
 
 
+def _write_status(run_id: str, phase: str, **extra: Any) -> None:
+    """Best-effort in-progress heartbeat at ``<run_dir>/status.json``.
+
+    code-task works in an isolated run dir, and the ``--repo`` source stays
+    empty until a VERIFIED change is persisted back — so an observer watching
+    the source repo cannot tell a healthy run from a stuck one. This heartbeat
+    gives the launching agent a correct place to see live progress without
+    touching the source. Never raises (status is advisory, not load-bearing).
+    """
+    try:
+        d = config.run_dir(run_id)
+        d.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, Any] = {
+            "run_id": run_id,
+            "phase": phase,
+            "updated": datetime.now(UTC).isoformat(),
+            **extra,
+        }
+        # Atomic write: a concurrent reader sees either the old or the new
+        # status.json, never a half-written one (tmp is in the same dir, so the
+        # replace is a same-filesystem rename).
+        tmp = d / "status.json.tmp"
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        tmp.replace(d / "status.json")
+    except OSError:
+        pass
+
+
 def _persist(result: TaskResult) -> None:
     config.artifact_path(result.run_id, "result.json").write_text(
         json.dumps(_result_to_dict(result), indent=2, ensure_ascii=False)
+    )
+    # Terminal heartbeat so a watcher sees the run is done (and its outcome)
+    # without parsing result.json.
+    _write_status(
+        result.run_id,
+        "completed",
+        state=result.state.value,
+        verified=result.verified,
+        installer_path=(result.build.installer_path if result.build else None),
     )

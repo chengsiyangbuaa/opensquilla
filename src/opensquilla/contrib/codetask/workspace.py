@@ -90,7 +90,16 @@ def prepare_repo(
     if base_ref:
         r = _git(["checkout", base_ref], dest)
         if r.returncode != 0:
-            raise WorkspaceError(f"git checkout {base_ref} failed: {r.stderr.strip()}")
+            hint = ""
+            if _git(["rev-parse", "--verify", "HEAD"], dest).returncode != 0:
+                hint = (
+                    " (the repository is empty/unborn and has no commit, so a "
+                    "--base ref cannot be checked out; omit --base to scaffold "
+                    "from scratch)"
+                )
+            raise WorkspaceError(
+                f"git checkout {base_ref} failed: {r.stderr.strip()}{hint}"
+            )
 
     head = _git(["rev-parse", "HEAD"], dest)
     base_commit = head.stdout.strip() if head.returncode == 0 else ""
@@ -154,16 +163,65 @@ def _current_branch(path: Path) -> str:
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def _empty_tree(repo: Path) -> str:
+    """Git's empty tree object id, derived at runtime.
+
+    Diffing the index against it yields every tracked file as an addition.
+    Computed via ``git hash-object`` (not hardcoded) so it is correct for both
+    SHA-1 and SHA-256 repositories.
+    """
+    r = _git(["hash-object", "-t", "tree", "/dev/null"], repo)
+    if r.returncode != 0:
+        raise WorkspaceError(f"could not compute empty tree: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def _diff_or_raise(args: list[str], repo: Path) -> str:
+    """Run a ``git diff`` variant, raising on failure instead of swallowing it.
+
+    These diff commands never use ``--exit-code``/``--quiet``/``--check``, so a
+    non-zero return code is always a real error (e.g. a bad base ref). The old
+    code ignored it and silently returned an empty patch.
+    """
+    r = _git(args, repo)
+    if r.returncode != 0:
+        raise WorkspaceError(
+            f"git {' '.join(args)} failed: {(r.stderr or '').strip()[-300:]}"
+        )
+    return r.stdout
+
+
 def collect_change(repo: Path, base_commit: str) -> tuple[int, str, str]:
     """Return (files_changed, diffstat, full_patch) of work vs base_commit.
 
     The agent commits on the task branch; uncommitted work is also captured
     so a non-committing agent still yields a diff.
+
+    When ``base_commit`` is "" (an unborn/empty source repo — build mode
+    scaffolding a brand-new app), the whole generated tree IS the change, so
+    the diff is taken against Git's empty tree using the staged index
+    (``--cached <empty_tree>``). That stays correct even when the agent commits
+    its scaffold mid-run: a plain ``git diff ""`` errors, and a bare
+    ``git diff --cached`` would compare against the agent's new HEAD and miss
+    the committed files once a HEAD exists.
     """
-    _git(["add", "-A"], repo)
-    diffstat = _git(["diff", "--stat", base_commit], repo).stdout.strip()
-    patch = _git(["diff", "--binary", "--no-color", base_commit], repo).stdout
-    names = _git(["diff", "--name-only", base_commit], repo).stdout.strip()
+    add = _git(["add", "-A"], repo)
+    if add.returncode != 0:
+        raise WorkspaceError(f"git add -A failed: {(add.stderr or '').strip()}")
+
+    if base_commit:
+        stat_args = ["diff", "--stat", base_commit]
+        patch_args = ["diff", "--binary", "--no-color", base_commit]
+        names_args = ["diff", "--name-only", base_commit]
+    else:
+        empty = _empty_tree(repo)
+        stat_args = ["diff", "--cached", "--stat", empty]
+        patch_args = ["diff", "--cached", "--binary", "--no-color", empty]
+        names_args = ["diff", "--cached", "--name-only", empty]
+
+    diffstat = _diff_or_raise(stat_args, repo).strip()
+    patch = _diff_or_raise(patch_args, repo)
+    names = _diff_or_raise(names_args, repo).strip()
     files_changed = len([n for n in names.splitlines() if n.strip()])
     return files_changed, diffstat, patch
 
@@ -181,7 +239,11 @@ def persist_to_source(
         return False, "source is not a git repo"
     if is_dirty(source_repo):
         return False, "source repo has uncommitted changes"
-    head = _git(["rev-parse", "HEAD"], source_repo).stdout.strip()
+    # NB: `git rev-parse HEAD` on an unborn (commit-less) repo echoes the literal
+    # "HEAD" on stdout and exits non-zero — so check the return code and treat an
+    # unborn HEAD as "" to match an empty base_commit (build-from-scratch).
+    head_proc = _git(["rev-parse", "--verify", "HEAD"], source_repo)
+    head = head_proc.stdout.strip() if head_proc.returncode == 0 else ""
     if head != base_commit:
         return False, f"source HEAD moved ({head[:12]} != base {base_commit[:12]})"
     if not patch.strip():
@@ -206,7 +268,14 @@ def persist_to_source(
 
 
 def count_commits(repo: Path, base_commit: str) -> int:
-    r = _git(["rev-list", "--count", f"{base_commit}..HEAD"], repo)
+    if base_commit:
+        r = _git(["rev-list", "--count", f"{base_commit}..HEAD"], repo)
+    else:
+        # Unborn/empty base: count whatever the agent committed. If it never
+        # committed, HEAD is still unborn -> 0.
+        if _git(["rev-parse", "--verify", "HEAD"], repo).returncode != 0:
+            return 0
+        r = _git(["rev-list", "--count", "HEAD"], repo)
     try:
         return int(r.stdout.strip())
     except (ValueError, AttributeError):

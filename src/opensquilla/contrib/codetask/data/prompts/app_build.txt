@@ -36,6 +36,28 @@ HOW TO BUILD IT (methodology — keep it simple)
 6. Generate everything in this run — do not stop half-way and say you will
    continue later.
 
+WORK IN BIG BATCHES (do NOT write one file per step — that is far too slow)
+- Each step/tool call is expensive (a full model round-trip). Minimize the
+  NUMBER of steps by doing as much as possible per step, not by writing less.
+- Plan the full file list up front, then create MANY files per shell command
+  using one heredoc-laden script, e.g.:
+      cat > src/renderer/src/pages/Home.tsx <<'EOF'
+      ...full file...
+      EOF
+      cat > src/renderer/src/pages/Fans.tsx <<'EOF'
+      ...full file...
+      EOF
+      cat > src/renderer/src/data/content.ts <<'EOF'
+      ...full file...
+      EOF
+  Group related files (all pages, then all components, then all data) into a
+  handful of batched commands instead of dozens of single-file writes.
+- Do scaffold + `npm install` as early as possible so a buildable skeleton with
+  a committed package-lock.json exists before you flesh out the UI — that way a
+  long build still yields something that compiles.
+- Prefer a few large steps over many tiny ones; aim to finish a typical app in
+  well under a dozen tool calls, not fifty.
+
 VERIFICATION (the runner checks you with a FIXED build checklist — make it pass)
 After you finish, the runner independently runs, from the repo root:
     npm ci

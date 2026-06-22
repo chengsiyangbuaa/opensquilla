@@ -46,6 +46,40 @@ def test_json_without_yes_is_refused():
     assert "--yes" in result.output
 
 
+def test_json_stdout_is_clean_with_marker_on_stderr(monkeypatch):
+    # --json must keep stdout pure JSON; the run-dir startup marker goes to
+    # stderr so a consumer reading stdout alone still gets parseable JSON.
+    import json as _json
+
+    import opensquilla.contrib.codetask.runner as ct_runner
+    from opensquilla.contrib.codetask.types import TaskResult, TaskState
+
+    fake = TaskResult(
+        task_slug="x",
+        run_id="codetask-task-fake",
+        state=TaskState.VERIFIED,
+        repo="/tmp/x",
+        base_ref="main",
+        branch="task/x",
+        source="inline",
+        artifact_dir="/tmp/x",
+    )
+    fake.verified = True
+    monkeypatch.setattr(ct_runner, "solve", lambda **kw: fake)
+
+    result = runner.invoke(
+        codetask_app,
+        ["solve", "--repo", "/tmp/x", "--task", "do it", "--json", "--yes"],
+    )
+    assert result.exit_code == 0, result.output
+    # stdout parses as JSON on its own — the marker did not leak into it.
+    parsed = _json.loads(result.stdout)
+    assert parsed["state"] == "verified"
+    assert "[code-task]" not in result.stdout
+    # the run-dir announcement is on stderr.
+    assert "[code-task] run started" in result.stderr
+
+
 def test_cli_main_does_not_import_codetask():
     result = subprocess.run(
         [
