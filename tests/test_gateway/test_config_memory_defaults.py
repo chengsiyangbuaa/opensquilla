@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from pydantic import ValidationError
 
 from opensquilla.gateway.config import GatewayConfig
 
 
-def test_memory_core_defaults_keep_single_stable_path() -> None:
+def test_memory_core_defaults_keep_single_stable_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in list(os.environ):
+        if key.startswith("OPENSQUILLA_RAG_"):
+            monkeypatch.delenv(key, raising=False)
+
     config = GatewayConfig()
 
     assert config.memory.embedding.provider == "auto"
@@ -16,6 +24,8 @@ def test_memory_core_defaults_keep_single_stable_path() -> None:
     assert toml_dict["memory"]["embedding"]["provider"] == "auto"
     assert "mode" not in toml_dict["memory"]["embedding"]
     assert config.memory.cost.query_embedding_cache == "on"
+    assert config.rag.enabled is False
+    assert config.rag.embedding.provider == "auto"
     assert config.memory.dream.enabled is False
     assert config.memory.dream.preview_mode is True
     assert config.memory.dream.auto_schedule is False
@@ -23,6 +33,8 @@ def test_memory_core_defaults_keep_single_stable_path() -> None:
     assert config.memory.capture_mode == "turn_pair"
     assert config.memory_mode_fingerprint()["mode"] == "stable"
     assert "derived_cache" not in config.memory_mode_fingerprint()
+    assert toml_dict["rag"]["enabled"] is False
+    assert toml_dict["rag"]["embedding"]["provider"] == "auto"
 
 
 @pytest.mark.parametrize(

@@ -153,6 +153,29 @@ auto_schedule = false
 # interval_h = 24
 # cron = "0 3 * * *"
 
+[rag]
+# Local document RAG is independent from memory and is disabled by default.
+enabled = false
+retrieval_mode = "hybrid"
+db_name = "rag.db"
+chunk_tokens = 400
+chunk_overlap = 50
+max_file_size_kb = 2048
+max_total_size_kb = 102400
+max_files = 5000
+
+[rag.embedding]
+provider = "auto"
+
+[[rag.sources]]
+id = "project-docs"
+path = "~/Documents/opensquilla-rag"
+include = ["**/*.md", "**/*.markdown", "**/*.txt"]
+exclude = ["**/.git/**", "**/node_modules/**", "**/.venv/**"]
+watch = false
+enabled = true
+scale_hint = "small"
+
 [skills]
 # Experimental skill relevance filtering. Default is off; deterministic
 # skill gating still runs for visibility, platform, and tool availability.
