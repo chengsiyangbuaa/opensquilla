@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import warnings
 from enum import StrEnum
@@ -27,6 +28,7 @@ from opensquilla.gateway.config_migration import (
     migrate_config_payload,
 )
 from opensquilla.paths import default_opensquilla_home
+from opensquilla.rag.types import RagRetrievalMode, RagScaleHint
 from opensquilla.router_tiers import (
     DEFAULT_TEXT_TIER,
     normalize_text_tier,
@@ -556,6 +558,90 @@ class MemoryConfig(BaseSettings):
 
     # Dream consolidation
     dream: DreamConfig = Field(default_factory=DreamConfig)
+
+
+class RagSourceConfig(BaseModel):
+    """Local document source configuration for RAG."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    path: str
+    include: list[str] = Field(
+        default_factory=lambda: ["**/*.md", "**/*.markdown", "**/*.txt"]
+    )
+    exclude: list[str] = Field(
+        default_factory=lambda: [
+            "**/.git/**",
+            "**/.env",
+            "**/*.key",
+            "**/*secret*",
+            "**/*credential*",
+            "**/node_modules/**",
+            "**/.venv/**",
+        ]
+    )
+    watch: bool = False
+    enabled: bool = True
+    scale_hint: RagScaleHint = "small"
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, value: str) -> str:
+        source_id = value.strip()
+        if not source_id:
+            raise ValueError("rag source id must be non-empty")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", source_id):
+            raise ValueError(
+                "rag source id may only contain letters, numbers, dots, "
+                "underscores, and dashes"
+            )
+        return source_id
+
+
+class RagConfig(BaseSettings):
+    """Local document RAG configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENSQUILLA_RAG_",
+        env_nested_delimiter="__",
+        extra="forbid",
+    )
+
+    enabled: bool = False
+    db_name: str = "rag.db"
+    retrieval_mode: RagRetrievalMode = "hybrid"
+    embedding: MemoryEmbeddingConfig = Field(default_factory=MemoryEmbeddingConfig)
+    sources: list[RagSourceConfig] = Field(default_factory=list)
+    chunk_tokens: int = Field(default=400, ge=100, le=2000)
+    chunk_overlap: int = Field(default=50, ge=0, le=500)
+    max_file_size_kb: int = Field(default=2048, ge=1)
+    max_total_size_kb: int = Field(default=102400, ge=1)
+    max_files: int = Field(default=5000, ge=1)
+    sync_interval_minutes: float = Field(default=0.0, ge=0.0)
+
+    @field_validator("db_name")
+    @classmethod
+    def _validate_db_name(cls, value: str) -> str:
+        db_name = value.strip()
+        if not db_name or db_name in {".", ".."}:
+            raise ValueError("rag.db_name must be a file name")
+        if "/" in db_name or "\\" in db_name:
+            raise ValueError("rag.db_name must not contain path separators")
+        if Path(db_name).name != db_name:
+            raise ValueError("rag.db_name must be a file name")
+        return db_name
+
+    @model_validator(mode="after")
+    def _validate_rag_config(self) -> RagConfig:
+        if self.chunk_overlap >= self.chunk_tokens:
+            raise ValueError("rag.chunk_overlap must be smaller than rag.chunk_tokens")
+        seen: set[str] = set()
+        for source in self.sources:
+            if source.id in seen:
+                raise ValueError(f"duplicate rag source id: {source.id}")
+            seen.add(source.id)
+        return self
 
 
 def _default_tiers() -> dict:
@@ -1560,6 +1646,7 @@ class GatewayConfig(BaseSettings):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     prompt: PromptConfig = Field(default_factory=PromptConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    rag: RagConfig = Field(default_factory=RagConfig)
     squilla_router: SquillaRouterConfig = Field(default_factory=SquillaRouterConfig)
     agent_token_saving: AgentTokenSavingConfig = Field(default_factory=AgentTokenSavingConfig)
     compaction: CompactionLlmConfig = Field(default_factory=CompactionLlmConfig)
